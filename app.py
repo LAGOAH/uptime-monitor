@@ -1,114 +1,108 @@
-from flask import Flask, render_template_string, jsonify, redirect
-import requests
-from datetime import datetime
+from flask import Flask, render_template_string, redirect, url_for, request, flash
+from flask_sqlalchemy import SQLAlchemy
+from flask_login import LoginManager, UserMixin, login_user, login_required, logout_user, current_user
+from werkzeug.security import generate_password_hash, check_password_hash
 import os
-from smartpaystack import SmartPaystack, ChargeStrategy, Currency
 
 app = Flask(__name__)
+app.secret_key = os.environ.get("SECRET_KEY", "dev-secret-key-change-this")
 
-websites = [
-    {"name": "Google", "url": "https://www.google.com"},
-    {"name": "GitHub", "url": "https://www.github.com"},
-]
+# Database setup
+database_url = os.environ.get("DATABASE_URL")
+if database_url and database_url.startswith("postgres://"):
+    database_url = database_url.replace("postgres://", "postgresql://", 1)
+app.config["SQLALCHEMY_DATABASE_URI"] = database_url or "sqlite:///uptime.db"
+app.config["SQLALCHEMY_TRACK_MODIFICATIONS"] = False
+db = SQLAlchemy(app)
 
-status_cache = {
-    "Google": {"status": "Not checked yet", "last_check": "Never", "response_time": "N/A"},
-    "GitHub": {"status": "Not checked yet", "last_check": "Never", "response_time": "N/A"},
-}
+login_manager = LoginManager()
+login_manager.init_app(app)
+login_manager.login_view = "login"
 
-ALERT_EMAIL = "lazarusgodswillahmadu@gmail.com"
+# User model
+class User(UserMixin, db.Model):
+    id = db.Column(db.Integer, primary_key=True)
+    email = db.Column(db.String(120), unique=True, nullable=False)
+    password_hash = db.Column(db.String(200), nullable=False)
+    is_pro = db.Column(db.Boolean, default=False)
 
-# Paystack configuration (uses environment variable on Render)
-PAYSTACK_SECRET_KEY = os.environ.get("PAYSTACK_SECRET_KEY")
-paystack_client = SmartPaystack(secret_key=PAYSTACK_SECRET_KEY)
+    def set_password(self, password):
+        self.password_hash = generate_password_hash(password)
 
-def check_website(url):
-    try:
-        start = datetime.now()
-        r = requests.get(url, timeout=5)
-        response_time = (datetime.now() - start).total_seconds()
-        if 200 <= r.status_code < 400:
-            return "UP", round(response_time, 3)
-        else:
-            return "DOWN", round(response_time, 3)
-    except:
-        return "DOWN", None
+    def check_password(self, password):
+        return check_password_hash(self.password_hash, password)
 
-@app.route('/update')
-def update():
-    for site in websites:
-        name = site["name"]
-        url = site["url"]
-        status, response_time = check_website(url)
-        status_cache[name] = {
-            "status": status,
-            "last_check": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
-            "response_time": response_time if response_time else "N/A"
-        }
-    return jsonify({"message": "Updated", "status": status_cache})
+@login_manager.user_loader
+def load_user(user_id):
+    return User.query.get(int(user_id))
 
-@app.route('/create-checkout-session')
-def create_checkout_session():
-    amount_in_ngn = 15000
-    customer_email = ALERT_EMAIL
-    response = paystack_client.create_charge(
-        email=customer_email,
-        amount=amount_in_ngn,
-        currency=Currency.NGN,
-        charge_strategy=ChargeStrategy.PASS,
-        metadata={"user_email": customer_email}
-    )
-    payment_url = response.get('authorization_url')
-    if payment_url:
-        return redirect(payment_url, code=303)
-    else:
-        return jsonify({"error": "Could not initialize payment"}), 500
+# Routes
+@app.route("/")
+def index():
+    if current_user.is_authenticated:
+        return redirect(url_for("dashboard"))
+    return '''
+        <h1>Uptime Monitor</h1>
+        <p>Monitor your websites. Get alerts when they go down.</p>
+        <a href="/login">Login</a> | <a href="/signup">Sign Up</a>
+    '''
 
-@app.route('/payment-success')
-def payment_success():
-    return "<h1>Payment Successful! Thank you for upgrading to Pro!</h1>"
+@app.route("/signup", methods=["GET", "POST"])
+def signup():
+    if request.method == "POST":
+        email = request.form["email"]
+        password = request.form["password"]
+        if User.query.filter_by(email=email).first():
+            flash("Email already registered")
+            return redirect(url_for("signup"))
+        user = User(email=email)
+        user.set_password(password)
+        db.session.add(user)
+        db.session.commit()
+        login_user(user)
+        return redirect(url_for("dashboard"))
+    return '''
+        <form method="post">
+            <input name="email" placeholder="Email" required><br>
+            <input name="password" type="password" placeholder="Password" required><br>
+            <button type="submit">Sign Up</button>
+        </form>
+        <a href="/login">Already have an account? Login</a>
+    '''
 
-@app.route('/payment-cancel')
-def payment_cancel():
-    return "<h1>Payment was cancelled. You can try again anytime.</h1>"
+@app.route("/login", methods=["GET", "POST"])
+def login():
+    if request.method == "POST":
+        email = request.form["email"]
+        password = request.form["password"]
+        user = User.query.filter_by(email=email).first()
+        if user and user.check_password(password):
+            login_user(user)
+            return redirect(url_for("dashboard"))
+        flash("Invalid email or password")
+    return '''
+        <form method="post">
+            <input name="email" placeholder="Email" required><br>
+            <input name="password" type="password" placeholder="Password" required><br>
+            <button type="submit">Login</button>
+        </form>
+        <a href="/signup">Sign up</a>
+    '''
 
-@app.route('/')
+@app.route("/logout")
+@login_required
+def logout():
+    logout_user()
+    return redirect(url_for("index"))
+
+@app.route("/dashboard")
+@login_required
 def dashboard():
-    html = """
-<!DOCTYPE html>
-<html>
-<head>
-    <title>Uptime Monitor</title>
-    <style>
-        body { font-family: Arial; margin: 40px; }
-        .UP { color: green; font-weight: bold; }
-        .DOWN { color: red; font-weight: bold; }
-        table { border-collapse: collapse; width: 100%; }
-        th, td { border: 1px solid #ddd; padding: 12px; text-align: left; }
-        th { background-color: #f2f2f2; }
-        button, .btn { padding: 10px 20px; font-size: 16px; cursor: pointer; margin: 5px; }
-        .btn-pro { background-color: #28a745; color: white; text-decoration: none; border-radius: 5px; display: inline-block; }
-    </style>
-</head>
-<body>
-    <h1>📡 Uptime Monitor</h1>
-    <a href="/create-checkout-session" class="btn btn-pro">🚀 Upgrade to Pro (₦15,000/month)</a>
-    <button onclick="fetch('/update').then(() => location.reload())">🔄 Check Now</button>
-    <table>
-        <tr><th>Website</th><th>Status</th><th>Last Check</th><th>Response Time</th></tr>
-        {% for site in websites %}
-        <tr>
-            <td>{{ site.name }}</td>
-            <td class="{{ status_cache[site.name].status }}">{{ status_cache[site.name].status }}</td>
-            <td>{{ status_cache[site.name].last_check }}</td>
-            <td>{{ status_cache[site.name].response_time }}</td>
-        </tr>
-        {% endfor %}
-    </table>
-</body>
-</html>
-    """
-    return render_template_string(html, websites=websites, status_cache=status_cache)
+    return f'<h1>Welcome {current_user.email}</h1><a href="/logout">Logout</a>'
 
-if __name__ == '__main__':
-    app.run(host='0.0.0.0', port=10000)
+# Create tables (only once)
+with app.app_context():
+    db.create_all()
+
+if __name__ == "__main__":
+    app.run(host="0.0.0.0", port=5000, debug=True)

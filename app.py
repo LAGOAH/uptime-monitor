@@ -23,7 +23,11 @@ resend.api_key = "re_gYLBeA6y_2X7TpevfDutuYXh1P6A5NgTr"  # <-- REPLACE THIS with
 ALERT_EMAIL = "lazarusgodswillahmadu@gmail.com"
 # ===================================
 
-status_cache = {}
+# Initialize status_cache with default values
+status_cache = {
+    "Google": {"status": "Checking...", "last_check": "Waiting", "response_time": "N/A"},
+    "GitHub": {"status": "Checking...", "last_check": "Waiting", "response_time": "N/A"},
+}
 previous_status = {site["name"]: "UNKNOWN" for site in websites}
 
 def check_website(url):

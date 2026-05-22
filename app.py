@@ -364,23 +364,28 @@ def payment_success():
 # ---------- BACKGROUND CHECK (every 5 minutes) ----------
 @app.route("/update-all")
 def update_all():
-    for website in Website.query.all():
-        user = User.query.get(website.user_id)
-        if not user:
-            continue
-        current_status, _ = check_website(website.url)
-        alert = Alert.query.filter_by(website_id=website.id).first()
-        if not alert:
-            alert = Alert(website_id=website.id, last_status=current_status)
-            db.session.add(alert)
-            db.session.commit()
-            continue
-        if alert.last_status != current_status:
-            send_alert_email(user.email, website.name, current_status, website.url)
-            alert.last_status = current_status
-            alert.last_alert_sent = datetime.now()
-            db.session.commit()
-    return "OK"   # <-- very short response
+    try:
+        for website in Website.query.all():
+            user = User.query.get(website.user_id)
+            if not user:
+                continue
+            current_status, _ = check_website(website.url)
+            alert = Alert.query.filter_by(website_id=website.id).first()
+            if not alert:
+                alert = Alert(website_id=website.id, last_status=current_status)
+                db.session.add(alert)
+                db.session.commit()
+                continue
+            if alert.last_status != current_status:
+                send_alert_email(user.email, website.name, current_status, website.url)
+                alert.last_status = current_status
+                alert.last_alert_sent = datetime.now()
+                db.session.commit()
+        return "OK"   # <-- always returns 2 bytes
+    except Exception as e:
+        # Log the error internally (Render logs will show it)
+        print(f"Update-all error: {e}")
+        return "ERR", 500   # still a tiny response
 
 # ---------- CREATE TABLES ----------
 with app.app_context():

@@ -5,6 +5,7 @@ from werkzeug.security import generate_password_hash, check_password_hash
 import os
 import requests
 from datetime import datetime
+import resend
 
 app = Flask(__name__)
 app.secret_key = os.environ.get("SECRET_KEY", "dev-secret-key-change-this")
@@ -20,6 +21,10 @@ db = SQLAlchemy(app)
 login_manager = LoginManager()
 login_manager.init_app(app)
 login_manager.login_view = "login"
+
+# Resend email setup
+resend.api_key = os.environ.get("RESEND_API_KEY")
+DEFAULT_FROM_EMAIL = "Uptime Monitor <onboarding@resend.dev>"
 
 # User model
 class User(UserMixin, db.Model):
@@ -42,6 +47,13 @@ class Website(db.Model):
     url = db.Column(db.String(500), nullable=False)
     user_id = db.Column(db.Integer, db.ForeignKey("user.id"), nullable=False)
 
+# Alert tracking (last known status per website)
+class Alert(db.Model):
+    id = db.Column(db.Integer, primary_key=True)
+    website_id = db.Column(db.Integer, db.ForeignKey("website.id"), nullable=False)
+    last_status = db.Column(db.String(10), nullable=False)
+    last_alert_sent = db.Column(db.DateTime, nullable=True)
+
 @login_manager.user_loader
 def load_user(user_id):
     return User.query.get(int(user_id))
@@ -57,6 +69,27 @@ def check_website(url):
             return "DOWN", round(response_time, 3)
     except:
         return "DOWN", None
+
+def send_alert_email(user_email, website_name, status, url):
+    if not resend.api_key:
+        print("Resend API key missing – cannot send email")
+        return
+    subject = f"⚠️ Alert: {website_name} is {status}"
+    html = f"""
+    <p>Your website <strong>{website_name}</strong> ({url}) is now <strong>{status}</strong>.</p>
+    <p>Time: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}</p>
+    <p>Log in to your dashboard for details: <a href="https://uptime-monitor-q3hi.onrender.com/dashboard">Uptime Monitor</a></p>
+    """
+    try:
+        resend.Emails.send({
+            "from": DEFAULT_FROM_EMAIL,
+            "to": [user_email],
+            "subject": subject,
+            "html": html,
+        })
+        print(f"Alert email sent to {user_email} for {website_name} ({status})")
+    except Exception as e:
+        print(f"Failed to send email: {e}")
 
 @app.route("/")
 def index():
@@ -176,8 +209,30 @@ def delete_website(website_id):
 
 @app.route("/update-all")
 def update_all():
-    # Will be used for background checking (Day 3)
-    return "Background check endpoint ready"
+    """Background check endpoint – loops through all users and websites, sends alerts on status change."""
+    # We'll use a simple lock to prevent concurrent runs (optional)
+    all_websites = Website.query.all()
+    for website in all_websites:
+        user = User.query.get(website.user_id)
+        if not user:
+            continue
+        # Get current status
+        current_status, _ = check_website(website.url)
+        # Find or create alert record
+        alert = Alert.query.filter_by(website_id=website.id).first()
+        if not alert:
+            alert = Alert(website_id=website.id, last_status=current_status, last_alert_sent=None)
+            db.session.add(alert)
+            db.session.commit()
+            # No alert on first check (avoid false positive)
+            continue
+        # If status changed, send email
+        if alert.last_status != current_status:
+            send_alert_email(user.email, website.name, current_status, website.url)
+            alert.last_status = current_status
+            alert.last_alert_sent = datetime.now()
+            db.session.commit()
+    return "Background check completed"
 
 # Create tables (only once)
 with app.app_context():

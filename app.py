@@ -20,7 +20,7 @@ logging.basicConfig(
 
 app = Flask(__name__)
 
-# 1. OPTIMIZATION: Strengthened Production Secret Key Setup
+# Strengthened Production Secret Key Setup
 app.config["SECRET_KEY"] = os.environ.get("SECRET_KEY", "dev-secret-key-change-this-only-in-local")
 
 # Database Setup & Configuration
@@ -30,7 +30,7 @@ if database_url and database_url.startswith("postgres://"):
 app.config["SQLALCHEMY_DATABASE_URI"] = database_url or "sqlite:///uptime.db"
 app.config["SQLALCHEMY_TRACK_MODIFICATIONS"] = False
 
-# 2. OPTIMIZATION: High-Concurrency Connection Pooling Options
+# High-Concurrency Connection Pooling Options
 app.config["SQLALCHEMY_ENGINE_OPTIONS"] = {
     "pool_size": 10,
     "max_overflow": 20,
@@ -101,13 +101,13 @@ def check_website(url):
     except Exception:
         return "DOWN", None
 
-# 3. OPTIMIZATION: Email Rate-Limit Aware Retry Loop Block
+# Email Rate-Limit Aware Retry Loop Block
 def send_alert_email(user_email, website_name, status, url, response_time="N/A"):
     if not resend.api_key:
         app.logger.warning("Resend API key missing – email aborted")
         return False
         
-    time.sleep(0.3)  # Gentle structural delay to smooth overlapping concurrent thread requests
+    time.sleep(0.3)  # Smooth out overlapping concurrent thread requests
     subject = f"⚠️ Alert: {website_name} is {status}"
     html = f"""
     <div style="background-color:#0b0f19; color:#f3f4f6; padding:24px; font-family:sans-serif; border-radius:12px;">
@@ -439,7 +439,8 @@ def dashboard():
     
     pro_badge = '<span class="bg-gradient-to-r from-amber-400 to-yellow-500 text-gray-950 px-3 py-1 rounded-full text-xs font-extrabold tracking-tight shadow-md shadow-yellow-500/10">⭐ PRO ACTIVE</span>' if current_user.is_pro else '<a href="/upgrade" class="bg-indigo-600 hover:bg-indigo-500 text-white px-3 py-1.5 rounded-full text-xs font-bold shadow-md shadow-indigo-600/20 transition active:scale-95">Upgrade to Pro</a>'
     
-    return f'''
+    # Decouple text layout by deploying distinct token replacements
+    template = '''
 <!DOCTYPE html>
 <html lang="en">
 <head>
@@ -450,7 +451,7 @@ def dashboard():
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
     <style>
         @import url('https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700&display=swap');
-        body {{ font-family: 'Plus Jakarta Sans', sans-serif; background-color: #030712; }}
+        body { font-family: 'Plus Jakarta Sans', sans-serif; background-color: #030712; }
     </style>
 </head>
 <body class="text-gray-100 selection:bg-indigo-500/30 overflow-x-hidden">
@@ -460,8 +461,8 @@ def dashboard():
         <div class="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4 border-b border-gray-800/80 pb-6 mb-8">
             <div class="min-w-0">
                 <span class="text-[10px] font-mono tracking-widest uppercase text-indigo-400">OPERATIONAL CONTROL UNIT</span>
-                <h1 class="text-xl sm:text-3xl font-extrabold text-white tracking-tight truncate mt-0.5">Instance: {current_user.email}</h1>
-                <div class="mt-2">{pro_badge}</div>
+                <h1 class="text-xl sm:text-3xl font-extrabold text-white tracking-tight truncate mt-0.5">Instance: __USER_EMAIL__</h1>
+                <div class="mt-2">__PRO_BADGE__</div>
             </div>
             <div class="flex items-center gap-2.5 w-full sm:w-auto shrink-0">
                 <a href="/add-website" class="flex-1 sm:flex-initial text-center bg-white hover:bg-gray-200 text-gray-950 px-4 py-2.5 rounded-xl text-sm font-semibold transition shadow-md shadow-white/5 active:scale-[0.98]">+ Inject Node</a>
@@ -469,29 +470,29 @@ def dashboard():
             </div>
         </div>
         
-        <div id="flash-container">{flash_messages}</div>
+        <div id="flash-container">__FLASH_MESSAGES__</div>
 
         <div id="cards-container" class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-            {cards if cards else '<div class="col-span-full bg-gray-900/20 border border-dashed border-gray-800 rounded-2xl py-12 text-center text-sm text-gray-500 flex flex-col items-center justify-center gap-2"><i class="fas fa-folder-open text-xl opacity-40"></i> No infrastructure nodes configured to this cluster environment index.</div>'}
+            __CARDS__
         </div>
     </div>
 
     <script>
-        async function refreshStatus() {{
-            try {{
+        async function refreshStatus() {
+            try {
                 const response = await fetch('/api/status');
                 const data = await response.json();
                 const websites = data.websites;
                 const container = document.getElementById('cards-container');
                 if (!container) return;
                 
-                if (websites.length === 0) {{
+                if (websites.length === 0) {
                     container.innerHTML = '<div class="col-span-full bg-gray-900/20 border border-dashed border-gray-800 rounded-2xl py-12 text-center text-sm text-gray-500 flex flex-col items-center justify-center gap-2"><i class="fas fa-folder-open text-xl opacity-40"></i> No infrastructure nodes configured to this cluster environment index.</div>';
                     return;
-                }}
+                }
                 
                 let newCards = '';
-                for (let w of websites) {{
+                for (let w of websites) {
                     const status = w.status;
                     const statusColor = status === 'UP' ? 'emerald' : 'red';
                     const statusBg = status === 'UP' ? 'emerald-500/10' : 'red-500/10';
@@ -503,31 +504,31 @@ def dashboard():
                         <div class="bg-gray-900/40 border border-gray-800/80 rounded-2xl p-5 backdrop-blur-sm shadow-xl flex flex-col justify-between group hover:border-gray-700 transition-all overflow-hidden max-w-full">
                             <div class="flex justify-between items-start gap-3 w-full">
                                 <div class="min-w-0 flex-1">
-                                    <h3 class="font-bold text-white text-base truncate">${{w.name}}</h3>
-                                    <p class="text-gray-400 text-xs truncate mt-0.5" title="${{w.url}}">${{w.url}}</p>
+                                    <h3 class="font-bold text-white text-base truncate">${w.name}</h3>
+                                    <p class="text-gray-400 text-xs truncate mt-0.5" title="${w.url}">${w.url}</p>
                                 </div>
                                 <div class="flex flex-col items-end shrink-0">
-                                    <span class="inline-flex items-center gap-1.5 bg-\${statusBg} border border-\${statusBorder} px-2.5 py-1 rounded-full text-xs font-semibold text-\${statusColor}-400">
-                                        <span class="w-1.5 h-1.5 rounded-full bg-\${statusColor}-400 \${pulseAnimation}"></span>
-                                        \${status}
+                                    <span class="inline-flex items-center gap-1.5 bg-${statusBg} border border-${statusBorder} px-2.5 py-1 rounded-full text-xs font-semibold text-${statusColor}-400">
+                                        <span class="w-1.5 h-1.5 rounded-full bg-${statusColor}-400 ${pulseAnimation}"></span>
+                                        ${status}
                                     </span>
-                                    <span class="text-gray-500 text-[10px] tracking-wide uppercase mt-1">\${responseTime}</span>
+                                    <span class="text-gray-500 text-[10px] tracking-wide uppercase mt-1">${responseTime}</span>
                                 </div>
                             </div>
                             <div class="mt-6 pt-3 border-t border-gray-800/60 flex justify-between items-center w-full">
-                                <span class="text-[10px] font-mono text-gray-500 tracking-wider">NODE ID: #\${w.id}</span>
-                                <a href="/delete-website/\${w.id}" class="text-red-400 hover:text-red-300 text-xs font-medium inline-flex items-center gap-1 transition">
+                                <span class="text-[10px] font-mono text-gray-500 tracking-wider">NODE ID: #${w.id}</span>
+                                <a href="/delete-website/${w.id}" class="text-red-400 hover:text-red-300 text-xs font-medium inline-flex items-center gap-1 transition">
                                     <i class="fas fa-trash-can text-[10px]"></i> Terminate Node
                                 </a>
                             </div>
                         </div>
                     `;
-                }}
+                }
                 container.innerHTML = newCards;
-            }} catch (err) {{
+            } catch (err) {
                 console.error('Status refresh execution error:', err);
-            }}
-        }}
+            }
+        }
         
         // Polling loop updates components every 15 seconds safely
         setInterval(refreshStatus, 15000);
@@ -535,6 +536,11 @@ def dashboard():
 </body>
 </html>
     '''
+    
+    return template.replace("__USER_EMAIL__", current_user.email)\
+                   .replace("__PRO_BADGE__", pro_badge)\
+                   .replace("__FLASH_MESSAGES__", flash_messages)\
+                   .replace("__CARDS__", cards if cards else '<div class="col-span-full bg-gray-900/20 border border-dashed border-gray-800 rounded-2xl py-12 text-center text-sm text-gray-500 flex flex-col items-center justify-center gap-2"><i class="fas fa-folder-open text-xl opacity-40"></i> No infrastructure nodes configured to this cluster environment index.</div>')
 
 @app.route("/add-website", methods=["GET", "POST"])
 @login_required

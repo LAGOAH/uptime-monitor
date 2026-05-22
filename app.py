@@ -1,4 +1,4 @@
-from flask import Flask, render_template_string, redirect, url_for, request, flash
+from flask import Flask, render_template_string, redirect, url_for, request, flash, get_flashed_messages
 from flask_sqlalchemy import SQLAlchemy
 from flask_login import LoginManager, UserMixin, login_user, login_required, logout_user, current_user
 from werkzeug.security import generate_password_hash, check_password_hash
@@ -125,7 +125,6 @@ def dashboard():
         status, rt = check_website(w.url)
         rows += f"<tr><td>{w.name}</td><td>{status}</td><td>{rt if rt else 'N/A'}</td><td><a href='/delete-website/{w.id}'>Delete</a></td></tr>"
     
-    # Get flash messages
     flash_messages = ""
     for msg in get_flashed_messages():
         flash_messages += f'<div style="color: red; margin-bottom: 10px;">⚠️ {msg}</div>'

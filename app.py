@@ -364,23 +364,28 @@ def payment_success():
 # ---------- BACKGROUND CHECK (every 5 minutes) ----------
 @app.route("/update-all")
 def update_all():
-    for website in Website.query.all():
-        user = User.query.get(website.user_id)
-        if not user:
-            continue
-        current_status, _ = check_website(website.url)
-        alert = Alert.query.filter_by(website_id=website.id).first()
-        if not alert:
-            alert = Alert(website_id=website.id, last_status=current_status)
-            db.session.add(alert)
-            db.session.commit()
-            continue
-        if alert.last_status != current_status:
-            send_alert_email(user.email, website.name, current_status, website.url)
-            alert.last_status = current_status
-            alert.last_alert_sent = datetime.now()
-            db.session.commit()
-    return "Background check completed"
+    try:
+        alert_count = 0
+        for website in Website.query.all():
+            user = User.query.get(website.user_id)
+            if not user:
+                continue
+            current_status, _ = check_website(website.url)
+            alert = Alert.query.filter_by(website_id=website.id).first()
+            if not alert:
+                alert = Alert(website_id=website.id, last_status=current_status)
+                db.session.add(alert)
+                db.session.commit()
+                continue
+            if alert.last_status != current_status:
+                send_alert_email(user.email, website.name, current_status, website.url)
+                alert.last_status = current_status
+                alert.last_alert_sent = datetime.now()
+                db.session.commit()
+                alert_count += 1
+        return f"OK - {alert_count} alerts sent"
+    except Exception as e:
+        return f"Error: {str(e)}"
 
 # ---------- CREATE TABLES ----------
 with app.app_context():

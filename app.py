@@ -94,6 +94,11 @@ def check_website(url):
         start = datetime.now()
         r = requests.get(url, timeout=4, headers={"User-Agent": "UptimeTargetValidator/1.0"})
         rt = round((datetime.now() - start).total_seconds(), 3)
+        
+        # Smart Content Check: Catch soft-404 error pages that return status 200 OK
+        if "There isn't a GitHub Pages site here" in r.text or "404 Not Found" in r.text or "Site not found" in r.text:
+            return "DOWN", rt
+
         if 200 <= r.status_code < 400:
             return "UP", rt
         else:
@@ -465,6 +470,7 @@ def dashboard():
             </div>
             <div class="flex items-center gap-2.5 w-full sm:w-auto shrink-0">
                 <a href="/add-website" class="flex-1 sm:flex-initial text-center bg-white hover:bg-gray-200 text-gray-950 px-4 py-2.5 rounded-xl text-sm font-semibold transition shadow-md shadow-white/5 active:scale-[0.98]">+ Inject Node</a>
+                <button onclick="fetch('/update-all').then(() => refreshStatus())" class="flex-1 sm:flex-initial text-center bg-indigo-600 hover:bg-indigo-500 text-white px-4 py-2.5 rounded-xl text-sm font-semibold transition shadow-md shadow-indigo-600/20 active:scale-[0.98]"><i class="fas fa-rotate-right mr-1"></i> Force Check</button>
                 <a href="/logout" class="bg-gray-900 border border-gray-800 hover:bg-gray-800 text-gray-400 px-4 py-2.5 rounded-xl text-sm font-semibold transition active:scale-[0.98]"><i class="fas fa-right-from-bracket"></i></a>
             </div>
         </div>

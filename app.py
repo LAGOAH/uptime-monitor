@@ -1,11 +1,11 @@
-from flask import Flask, render_template_string, redirect, url_for, request, flash, get_flashed_messages
+from flask import Flask, redirect, url_for, request, flash, get_flashed_messages
 from flask_sqlalchemy import SQLAlchemy
 from flask_login import LoginManager, UserMixin, login_user, login_required, logout_user, current_user
 from werkzeug.security import generate_password_hash, check_password_hash
 import os
 import requests
 from datetime import datetime
-import resend
+import secrets
 
 app = Flask(__name__)
 app.secret_key = os.environ.get("SECRET_KEY", "dev-secret-key-change-this")
@@ -22,9 +22,8 @@ login_manager = LoginManager()
 login_manager.init_app(app)
 login_manager.login_view = "login"
 
-# Resend email setup
-resend.api_key = os.environ.get("RESEND_API_KEY")
-DEFAULT_FROM_EMAIL = "Uptime Monitor <onboarding@resend.dev>"
+# Paystack key
+PAYSTACK_SECRET_KEY = os.environ.get("PAYSTACK_SECRET_KEY")
 
 # User model
 class User(UserMixin, db.Model):
@@ -47,7 +46,7 @@ class Website(db.Model):
     url = db.Column(db.String(500), nullable=False)
     user_id = db.Column(db.Integer, db.ForeignKey("user.id"), nullable=False)
 
-# Alert tracking (last known status per website)
+# Alert tracking
 class Alert(db.Model):
     id = db.Column(db.Integer, primary_key=True)
     website_id = db.Column(db.Integer, db.ForeignKey("website.id"), nullable=False)
@@ -71,33 +70,16 @@ def check_website(url):
         return "DOWN", None
 
 def send_alert_email(user_email, website_name, status, url):
-    if not resend.api_key:
-        print("Resend API key missing – cannot send email")
-        return
-    subject = f"⚠️ Alert: {website_name} is {status}"
-    html = f"""
-    <p>Your website <strong>{website_name}</strong> ({url}) is now <strong>{status}</strong>.</p>
-    <p>Time: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}</p>
-    <p>Log in to your dashboard for details: <a href="https://uptime-monitor-q3hi.onrender.com/dashboard">Uptime Monitor</a></p>
-    """
-    try:
-        resend.Emails.send({
-            "from": DEFAULT_FROM_EMAIL,
-            "to": [user_email],
-            "subject": subject,
-            "html": html,
-        })
-        print(f"Alert email sent to {user_email} for {website_name} ({status})")
-    except Exception as e:
-        print(f"Failed to send email: {e}")
+    # Placeholder – you can add Resend or any email later
+    print(f"Would send email to {user_email}: {website_name} is {status}")
 
+# Routes
 @app.route("/")
 def index():
     if current_user.is_authenticated:
         return redirect(url_for("dashboard"))
     return '''
         <h1>Uptime Monitor</h1>
-        <p>Monitor your websites. Get alerts when they go down.</p>
         <a href="/login">Login</a> | <a href="/signup">Sign Up</a>
     '''
 
@@ -156,14 +138,20 @@ def dashboard():
     rows = ""
     for w in websites:
         status, rt = check_website(w.url)
-        rows += f"<tr><td>{w.name}</td><td>{status}</td><td>{rt if rt else 'N/A'}</td><td><a href='/delete-website/{w.id}'>Delete</a></td></tr>"
+        rows += f"</td><td>{w.name}</td><td>{status}</td><td>{rt if rt else 'N/A'}</td><td><a href='/delete-website/{w.id}'>Delete</a></td></tr>"
     
     flash_messages = ""
     for msg in get_flashed_messages():
-        flash_messages += f'<div style="color: red; margin-bottom: 10px;">⚠️ {msg}</div>'
+        flash_messages += f'<div style="color: red;">⚠️ {msg}</div>'
+    
+    # Show Upgrade button if not pro, else Pro badge
+    if current_user.is_pro:
+        pro_badge = '<span style="background: gold; padding: 2px 8px; border-radius: 12px;">⭐ Pro</span>'
+    else:
+        pro_badge = '<a href="/upgrade" style="background: #28a745; color: white; padding: 2px 8px; text-decoration: none; border-radius: 12px;">Upgrade to Pro</a>'
     
     return f'''
-        <h1>Welcome {current_user.email}</h1>
+        <h1>Welcome {current_user.email} {pro_badge}</h1>
         {flash_messages}
         <a href="/add-website">Add Website</a> | <a href="/logout">Logout</a>
         <table border="1" cellpadding="10">
@@ -207,26 +195,68 @@ def delete_website(website_id):
     db.session.commit()
     return redirect(url_for("dashboard"))
 
+@app.route("/upgrade")
+@login_required
+def upgrade():
+    if not PAYSTACK_SECRET_KEY:
+        return "Paystack secret key missing", 500
+    amount_kobo = 1500000  # ₦15,000
+    ref = secrets.token_hex(16)
+    headers = {"Authorization": f"Bearer {PAYSTACK_SECRET_KEY}", "Content-Type": "application/json"}
+    data = {
+        "amount": amount_kobo,
+        "email": current_user.email,
+        "reference": ref,
+        "callback_url": url_for("payment_success", _external=True),
+    }
+    try:
+        r = requests.post("https://api.paystack.co/transaction/initialize", json=data, headers=headers)
+        result = r.json()
+        if result.get("status"):
+            return redirect(result["data"]["authorization_url"])
+        else:
+            flash("Payment initialization failed")
+            return redirect(url_for("dashboard"))
+    except Exception as e:
+        flash(f"Error: {e}")
+        return redirect(url_for("dashboard"))
+
+@app.route("/payment-success")
+def payment_success():
+    ref = request.args.get("reference")
+    if not ref:
+        flash("Missing reference")
+        return redirect(url_for("dashboard"))
+    headers = {"Authorization": f"Bearer {PAYSTACK_SECRET_KEY}"}
+    r = requests.get(f"https://api.paystack.co/transaction/verify/{ref}", headers=headers)
+    result = r.json()
+    if result.get("status") and result["data"]["status"] == "success":
+        email = result["data"]["customer"]["email"]
+        user = User.query.filter_by(email=email).first()
+        if user:
+            user.is_pro = True
+            db.session.commit()
+            login_user(user, force=True)
+            flash("Payment successful! Your account is now Pro.")
+        else:
+            flash("User not found")
+    else:
+        flash("Verification failed")
+    return redirect(url_for("dashboard"))
+
 @app.route("/update-all")
 def update_all():
-    """Background check endpoint – loops through all users and websites, sends alerts on status change."""
-    # We'll use a simple lock to prevent concurrent runs (optional)
-    all_websites = Website.query.all()
-    for website in all_websites:
+    for website in Website.query.all():
         user = User.query.get(website.user_id)
         if not user:
             continue
-        # Get current status
         current_status, _ = check_website(website.url)
-        # Find or create alert record
         alert = Alert.query.filter_by(website_id=website.id).first()
         if not alert:
-            alert = Alert(website_id=website.id, last_status=current_status, last_alert_sent=None)
+            alert = Alert(website_id=website.id, last_status=current_status)
             db.session.add(alert)
             db.session.commit()
-            # No alert on first check (avoid false positive)
             continue
-        # If status changed, send email
         if alert.last_status != current_status:
             send_alert_email(user.email, website.name, current_status, website.url)
             alert.last_status = current_status
@@ -234,7 +264,7 @@ def update_all():
             db.session.commit()
     return "Background check completed"
 
-# Create tables (only once)
+# Create tables
 with app.app_context():
     db.create_all()
 

@@ -439,7 +439,6 @@ def dashboard():
     
     pro_badge = '<span class="bg-gradient-to-r from-amber-400 to-yellow-500 text-gray-950 px-3 py-1 rounded-full text-xs font-extrabold tracking-tight shadow-md shadow-yellow-500/10">⭐ PRO ACTIVE</span>' if current_user.is_pro else '<a href="/upgrade" class="bg-indigo-600 hover:bg-indigo-500 text-white px-3 py-1.5 rounded-full text-xs font-bold shadow-md shadow-indigo-600/20 transition active:scale-95">Upgrade to Pro</a>'
     
-    # Decouple text layout by deploying distinct token replacements
     template = '''
 <!DOCTYPE html>
 <html lang="en">
@@ -530,8 +529,8 @@ def dashboard():
             }
         }
         
-        // Polling loop updates components every 15 seconds safely
-        setInterval(refreshStatus, 15000);
+        // Polling loop updates components every 60 seconds (60000ms) safely without refreshing page
+        setInterval(refreshStatus, 60000);
     </script>
 </body>
 </html>
@@ -546,15 +545,24 @@ def dashboard():
 @login_required
 def add_website():
     if request.method == "POST":
-        name = request.form["name"]
-        url = request.form["url"]
+        name = request.form["name"].strip()
+        url = request.form["url"].strip().rstrip('/') # Strip trailing slashes to accurately match duplicates
+        
+        # Smart Duplication Prevention
+        existing_site = Website.query.filter_by(user_id=current_user.id, url=url).first()
+        if existing_site:
+            flash(f"This URL ({url}) is already actively monitored!")
+            return redirect(url_for("dashboard"))
+            
         if not current_user.is_pro and Website.query.filter_by(user_id=current_user.id).count() >= 3:
             flash("Free tier limit reached! Upgrade to Pro for unlimited URLs.")
             return redirect(url_for("dashboard"))
+            
         website = Website(name=name, url=url, user_id=current_user.id)
         db.session.add(website)
         db.session.commit()
         return redirect(url_for("dashboard"))
+        
     return '''
 <!DOCTYPE html>
 <html lang="en">

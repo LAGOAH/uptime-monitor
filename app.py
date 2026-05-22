@@ -124,8 +124,15 @@ def dashboard():
     for w in websites:
         status, rt = check_website(w.url)
         rows += f"<tr><td>{w.name}</td><td>{status}</td><td>{rt if rt else 'N/A'}</td><td><a href='/delete-website/{w.id}'>Delete</a></td></tr>"
+    
+    # Get flash messages
+    flash_messages = ""
+    for msg in get_flashed_messages():
+        flash_messages += f'<div style="color: red; margin-bottom: 10px;">⚠️ {msg}</div>'
+    
     return f'''
         <h1>Welcome {current_user.email}</h1>
+        {flash_messages}
         <a href="/add-website">Add Website</a> | <a href="/logout">Logout</a>
         <table border="1" cellpadding="10">
             <tr><th>Name</th><th>Status</th><th>Response (s)</th><th>Action</th></tr>

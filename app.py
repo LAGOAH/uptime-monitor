@@ -292,12 +292,23 @@ def add_website():
 @app.route("/delete-website/<int:website_id>")
 @login_required
 def delete_website(website_id):
-    website = Website.query.get_or_404(website_id)
-    if website.user_id != current_user.id:
-        flash("Unauthorized")
-        return redirect(url_for("dashboard"))
-    db.session.delete(website)
-    db.session.commit()
+    try:
+        website = Website.query.get(website_id)
+        if not website:
+            flash("Website not found.")
+            return redirect(url_for("dashboard"))
+        if website.user_id != current_user.id:
+            flash("Unauthorized.")
+            return redirect(url_for("dashboard"))
+        # Delete related alerts first
+        Alert.query.filter_by(website_id=website.id).delete()
+        db.session.delete(website)
+        db.session.commit()
+        flash("Website deleted successfully.")
+    except Exception as e:
+        db.session.rollback()
+        print(f"Delete error: {e}")
+        flash("An error occurred while deleting. Please try again.")
     return redirect(url_for("dashboard"))
 
 # ---------- PAYMENT ----------

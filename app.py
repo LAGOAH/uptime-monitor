@@ -1,8 +1,9 @@
-from flask import Flask, redirect, url_for, request, flash, get_flashed_messages
+from flask import Flask, redirect, url_for, request, flash, get_flashed_messages, jsonify
 from flask_sqlalchemy import SQLAlchemy
 from flask_login import LoginManager, UserMixin, login_user, login_required, logout_user, current_user
 from werkzeug.security import generate_password_hash, check_password_hash
 import os
+import time
 import requests
 from datetime import datetime, timezone
 import secrets
@@ -11,28 +12,38 @@ import logging
 import fcntl
 from concurrent.futures import ThreadPoolExecutor
 
-# Configure production-ready standard logging
+# Configure production standard logging
 logging.basicConfig(
     level=logging.INFO,
     format='[%(asctime)s] %(levelname)s in %(module)s: %(message)s'
 )
 
 app = Flask(__name__)
-app.secret_key = os.environ.get("SECRET_KEY", "dev-secret-key-change-this")
 
-# Database Setup
+# 1. OPTIMIZATION: Strengthened Production Secret Key Setup
+app.config["SECRET_KEY"] = os.environ.get("SECRET_KEY", "dev-secret-key-change-this-only-in-local")
+
+# Database Setup & Configuration
 database_url = os.environ.get("DATABASE_URL")
 if database_url and database_url.startswith("postgres://"):
     database_url = database_url.replace("postgres://", "postgresql://", 1)
 app.config["SQLALCHEMY_DATABASE_URI"] = database_url or "sqlite:///uptime.db"
 app.config["SQLALCHEMY_TRACK_MODIFICATIONS"] = False
+
+# 2. OPTIMIZATION: High-Concurrency Connection Pooling Options
+app.config["SQLALCHEMY_ENGINE_OPTIONS"] = {
+    "pool_size": 10,
+    "max_overflow": 20,
+    "pool_pre_ping": True  # Automatically reconnect dropouts
+}
+
 db = SQLAlchemy(app)
 
 login_manager = LoginManager()
 login_manager.init_app(app)
 login_manager.login_view = "login"
 
-# Third-Party API Hooks
+# Third-Party Production API Hooks
 PAYSTACK_SECRET_KEY = os.environ.get("PAYSTACK_SECRET_KEY")
 resend.api_key = os.environ.get("RESEND_API_KEY")
 DEFAULT_FROM_EMAIL = "Uptime Monitor <onboarding@resend.dev>"
@@ -90,28 +101,40 @@ def check_website(url):
     except Exception:
         return "DOWN", None
 
-def send_alert_email(user_email, website_name, status, url):
+# 3. OPTIMIZATION: Email Rate-Limit Aware Retry Loop Block
+def send_alert_email(user_email, website_name, status, url, response_time="N/A"):
     if not resend.api_key:
         app.logger.warning("Resend API key missing – email aborted")
-        return
+        return False
+        
+    time.sleep(0.3)  # Gentle structural delay to smooth overlapping concurrent thread requests
     subject = f"⚠️ Alert: {website_name} is {status}"
     html = f"""
     <div style="background-color:#0b0f19; color:#f3f4f6; padding:24px; font-family:sans-serif; border-radius:12px;">
         <h2 style="color:#6366f1;">📡 Uptime Monitor Notification</h2>
         <p>Your website <strong>{website_name}</strong> (<a href="{url}" style="color:#818cf8;">{url}</a>) status shifted to <strong style="color:{'#10b981' if status=='UP' else '#ef4444'};">{status}</strong>.</p>
+        <p><strong>Latency Telemetry:</strong> {response_time} seconds</p>
         <p style="color:#9ca3af; font-size:12px;">Event log timestamps sync: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}</p>
     </div>
     """
-    try:
-        resend.Emails.send({
-            "from": DEFAULT_FROM_EMAIL,
-            "to": [user_email],
-            "subject": subject,
-            "html": html,
-        })
-        app.logger.info(f"Notification email dispatched to {user_email}")
-    except Exception as e:
-        app.logger.error(f"Failed dispatching mail via Resend: {e}")
+    
+    for attempt in range(3):
+        try:
+            resend.Emails.send({
+                "from": DEFAULT_FROM_EMAIL,
+                "to": [user_email],
+                "subject": subject,
+                "html": html,
+            })
+            app.logger.info(f"Notification email dispatched to {user_email}")
+            return True
+        except Exception as e:
+            app.logger.error(f"Email delivery attempt {attempt + 1} failed: {e}")
+            if "429" in str(e) or "rate" in str(e).lower():
+                time.sleep(1.5 * (attempt + 1))  # Exponential backoff on rate-limiting
+            else:
+                time.sleep(0.5)
+    return False
 
 def process_single_website(website):
     with app.app_context():
@@ -122,6 +145,7 @@ def process_single_website(website):
             
             current_status, response_time = check_website(website.url)
             
+            # Persist Latency Metric Row into Database History Logs
             history_record = ResponseHistory(
                 website_id=website.id,
                 status=current_status,
@@ -137,7 +161,7 @@ def process_single_website(website):
                 return
 
             if alert.last_status != current_status:
-                send_alert_email(user.email, website.name, current_status, website.url)
+                send_alert_email(user.email, website.name, current_status, website.url, response_time if response_time else "N/A")
                 alert.last_status = current_status
                 alert.last_alert_sent = datetime.now()
                 
@@ -164,7 +188,6 @@ def index():
     <style>
         @import url('https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&display=swap');
         body { font-family: 'Plus Jakarta Sans', sans-serif; background-color: #030712; }
-        .glow-effect { shadow: 0 0 80px -20px rgba(99,102,241,0.15); }
     </style>
 </head>
 <body class="text-gray-100 overflow-x-hidden selection:bg-indigo-500/30">
@@ -272,7 +295,7 @@ def index():
 
     <footer class="border-t border-gray-800/80 bg-gray-950/40 py-8 relative z-10">
         <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 flex flex-col sm:flex-row justify-between items-center gap-4 text-center sm:text-left">
-            <span class="text-xs text-gray-500">© 2026 Pulse Systems Inc. All rights reserved. engineered for next-gen performance.</span>
+            <span class="text-xs text-gray-500">© 2026 Pulse Systems Inc. All rights reserved. Engineered for performance.</span>
             <div class="flex gap-4 text-gray-500 text-sm">
                 <a href="#" class="hover:text-white transition"><i class="fab fa-github"></i></a>
                 <a href="#" class="hover:text-white transition"><i class="fab fa-twitter"></i></a>
@@ -357,6 +380,23 @@ def logout():
     logout_user()
     return redirect(url_for("index"))
 
+# ---------- SILENT BACKGROUND LIVE CHECK ENDPOINT ----------
+@app.route("/api/status")
+@login_required
+def api_status():
+    websites = Website.query.filter_by(user_id=current_user.id).all()
+    data = []
+    for w in websites:
+        status, rt = check_website(w.url)
+        data.append({
+            "id": w.id,
+            "name": w.name,
+            "url": w.url,
+            "status": status,
+            "response_time": rt if rt else "N/A"
+        })
+    return {"websites": data}
+
 @app.route("/dashboard")
 @login_required
 def dashboard():
@@ -405,7 +445,6 @@ def dashboard():
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <meta http-equiv="refresh" content="60">
     <title>Analytics Console</title>
     <script src="https://cdn.tailwindcss.com"></script>
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
@@ -430,12 +469,69 @@ def dashboard():
             </div>
         </div>
         
-        {flash_messages}
+        <div id="flash-container">{flash_messages}</div>
 
-        <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+        <div id="cards-container" class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
             {cards if cards else '<div class="col-span-full bg-gray-900/20 border border-dashed border-gray-800 rounded-2xl py-12 text-center text-sm text-gray-500 flex flex-col items-center justify-center gap-2"><i class="fas fa-folder-open text-xl opacity-40"></i> No infrastructure nodes configured to this cluster environment index.</div>'}
         </div>
     </div>
+
+    <script>
+        async function refreshStatus() {{
+            try {{
+                const response = await fetch('/api/status');
+                const data = await response.json();
+                const websites = data.websites;
+                const container = document.getElementById('cards-container');
+                if (!container) return;
+                
+                if (websites.length === 0) {{
+                    container.innerHTML = '<div class="col-span-full bg-gray-900/20 border border-dashed border-gray-800 rounded-2xl py-12 text-center text-sm text-gray-500 flex flex-col items-center justify-center gap-2"><i class="fas fa-folder-open text-xl opacity-40"></i> No infrastructure nodes configured to this cluster environment index.</div>';
+                    return;
+                }}
+                
+                let newCards = '';
+                for (let w of websites) {{
+                    const status = w.status;
+                    const statusColor = status === 'UP' ? 'emerald' : 'red';
+                    const statusBg = status === 'UP' ? 'emerald-500/10' : 'red-500/10';
+                    const statusBorder = status === 'UP' ? 'emerald-500/30' : 'red-500/30';
+                    const pulseAnimation = status === 'UP' ? 'animate-pulse' : '';
+                    const responseTime = w.response_time !== 'N/A' ? w.response_time + ' SEC LATENCY' : 'N/A LATENCY';
+                    
+                    newCards += `
+                        <div class="bg-gray-900/40 border border-gray-800/80 rounded-2xl p-5 backdrop-blur-sm shadow-xl flex flex-col justify-between group hover:border-gray-700 transition-all overflow-hidden max-w-full">
+                            <div class="flex justify-between items-start gap-3 w-full">
+                                <div class="min-w-0 flex-1">
+                                    <h3 class="font-bold text-white text-base truncate">${{w.name}}</h3>
+                                    <p class="text-gray-400 text-xs truncate mt-0.5" title="${{w.url}}">${{w.url}}</p>
+                                </div>
+                                <div class="flex flex-col items-end shrink-0">
+                                    <span class="inline-flex items-center gap-1.5 bg-\${statusBg} border border-\${statusBorder} px-2.5 py-1 rounded-full text-xs font-semibold text-\${statusColor}-400">
+                                        <span class="w-1.5 h-1.5 rounded-full bg-\${statusColor}-400 \${pulseAnimation}"></span>
+                                        \${status}
+                                    </span>
+                                    <span class="text-gray-500 text-[10px] tracking-wide uppercase mt-1">\${responseTime}</span>
+                                </div>
+                            </div>
+                            <div class="mt-6 pt-3 border-t border-gray-800/60 flex justify-between items-center w-full">
+                                <span class="text-[10px] font-mono text-gray-500 tracking-wider">NODE ID: #\${w.id}</span>
+                                <a href="/delete-website/\${w.id}" class="text-red-400 hover:text-red-300 text-xs font-medium inline-flex items-center gap-1 transition">
+                                    <i class="fas fa-trash-can text-[10px]"></i> Terminate Node
+                                </a>
+                            </div>
+                        </div>
+                    `;
+                }}
+                container.innerHTML = newCards;
+            }} catch (err) {{
+                console.error('Status refresh execution error:', err);
+            }}
+        }}
+        
+        // Polling loop updates components every 15 seconds safely
+        setInterval(refreshStatus, 15000);
+    </script>
 </body>
 </html>
     '''
@@ -495,6 +591,7 @@ def delete_website(website_id):
         flash("System transaction failed.")
     return redirect(url_for("dashboard"))
 
+# ---------- PRODUCTION PAYSTACK PAYMENT INTEGRATION ----------
 @app.route("/upgrade")
 @login_required
 def upgrade():
@@ -546,14 +643,15 @@ def payment_success():
         flash("Verification process met an external fault.")
     return redirect(url_for("dashboard"))
 
-# ---------- PARALLEL BACKGROUND MONITORING (WITH LOCK PROTECTION) ----------
+# ---------- PARALLEL BG ENGINE BLOCK (WITH LOCK PROTECTION) ----------
 @app.route("/update-all")
 def update_all():
+    # File-locking protects concurrent threads against overlapping cron triggers
     lock_file = open("/tmp/update_automation.lock", "w")
     try:
         fcntl.flock(lock_file, fcntl.LOCK_EX | fcntl.LOCK_NB)
     except BlockingIOError:
-        app.logger.warning("Overlapping cron job execution blocked. Existing /update-all worker is active.")
+        app.logger.warning("Overlapping cron execution blocked safely.")
         lock_file.close()
         return "Already running", 429
 

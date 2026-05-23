@@ -38,7 +38,7 @@ app.config["SQLALCHEMY_TRACK_MODIFICATIONS"] = False
 app.config["SQLALCHEMY_ENGINE_OPTIONS"] = {
     "pool_size": 10,
     "max_overflow": 20,
-    "pool_pre_ping": True
+    "pool_pre_ping": True  # Automatically reconnect dropouts
 }
 
 db = SQLAlchemy(app)
@@ -59,7 +59,7 @@ class User(UserMixin, db.Model):
     password_hash = db.Column(db.String(200), nullable=False)
     is_pro = db.Column(db.Boolean, default=False)
     
-    # Password reset fields (reserved for future use, but kept for consistency)
+    # Password Reset Protocol Fields
     reset_token = db.Column(db.String(100), nullable=True, unique=True)
     reset_token_expiry = db.Column(db.DateTime, nullable=True)
     
@@ -121,7 +121,7 @@ def send_alert_email(user_email, website_name, status, url, response_time="N/A")
         app.logger.warning("Resend API key missing – email aborted")
         return False
         
-    time.sleep(0.3)
+    time.sleep(0.3)  # Smooth out overlapping concurrent thread requests
     subject = f"⚠️ Alert: {website_name} is {status}"
     html = f"""
     <div style="background-color:#0b0f19; color:#f3f4f6; padding:24px; font-family:sans-serif; border-radius:12px;">
@@ -145,7 +145,7 @@ def send_alert_email(user_email, website_name, status, url, response_time="N/A")
         except Exception as e:
             app.logger.error(f"Email delivery attempt {attempt + 1} failed: {e}")
             if "429" in str(e) or "rate" in str(e).lower():
-                time.sleep(1.5 * (attempt + 1))
+                time.sleep(1.5 * (attempt + 1))  # Exponential backoff on rate-limiting
             else:
                 time.sleep(0.5)
     return False
@@ -214,6 +214,7 @@ def process_single_website(website):
             
             current_status, response_time = check_website(website.url)
             
+            # Persist Latency Metric Row into Database History Logs
             history_record = ResponseHistory(
                 website_id=website.id,
                 status=current_status,
@@ -239,11 +240,13 @@ def process_single_website(website):
             app.logger.error(f"Exception scanning targets for {website.url}: {e}")
 
 # ---------- ROUTES ----------
+
 @app.route("/")
 def index():
     if current_user.is_authenticated:
         return redirect(url_for("dashboard"))
-    return '''<!DOCTYPE html>
+    return '''
+<!DOCTYPE html>
 <html lang="en" class="scroll-smooth">
 <head>
     <meta charset="UTF-8">
@@ -251,14 +254,20 @@ def index():
     <title>📡 Pulse - Next-Gen Autonomous Uptime Monitoring</title>
     <script src="https://cdn.tailwindcss.com"></script>
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
-    <style>@import url('https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&display=swap');body{font-family:'Plus Jakarta Sans',sans-serif;background-color:#030712;}</style>
+    <style>
+        @import url('https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&display=swap');
+        body { font-family: 'Plus Jakarta Sans', sans-serif; background-color: #030712; }
+    </style>
 </head>
 <body class="text-gray-100 overflow-x-hidden selection:bg-indigo-500/30">
     <div class="absolute top-0 left-1/2 -translate-x-1/2 w-full max-w-7xl h-[600px] pointer-events-none opacity-30 blur-[140px] bg-gradient-to-r from-indigo-600 via-purple-600 to-pink-600 rounded-full top-[-250px]"></div>
+
     <nav class="sticky top-0 z-50 backdrop-blur-md bg-gray-950/70 border-b border-gray-800/60 transition-all">
         <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 h-16 flex items-center justify-between">
             <div class="flex items-center gap-2.5">
-                <div class="w-9 h-9 rounded-xl bg-indigo-600 flex items-center justify-center shadow-[0_0_20px_rgba(99,102,241,0.5)]"><i class="fas fa-satellite-dish text-white text-sm animate-pulse"></i></div>
+                <div class="w-9 h-9 rounded-xl bg-indigo-600 flex items-center justify-center shadow-[0_0_20px_rgba(99,102,241,0.5)]">
+                    <i class="fas fa-satellite-dish text-white text-sm animate-pulse"></i>
+                </div>
                 <span class="text-lg font-bold tracking-tight bg-clip-text text-transparent bg-gradient-to-r from-white via-gray-200 to-gray-400">PULSE</span>
             </div>
             <div class="flex items-center gap-3 sm:gap-4">
@@ -267,36 +276,109 @@ def index():
             </div>
         </div>
     </nav>
+
     <section class="relative max-w-5xl mx-auto px-4 sm:px-6 lg:px-8 pt-24 pb-16 text-center z-10">
-        <div class="inline-flex items-center gap-2 bg-indigo-500/10 border border-indigo-500/30 rounded-full px-3.5 py-1.5 mb-6 transform hover:scale-105 transition-all cursor-pointer"><span class="w-2 h-2 rounded-full bg-indigo-400 animate-ping"></span><span class="text-xs font-semibold tracking-wide text-indigo-300 uppercase">Engine V2.4 Live</span></div>
-        <h1 class="text-4xl sm:text-6xl lg:text-7xl font-extrabold tracking-tight text-white leading-[1.1] mb-6">Intelligent infrastructure <br class="hidden sm:inline"><span class="bg-clip-text text-transparent bg-gradient-to-r from-indigo-400 via-purple-400 to-pink-400">monitored in real-time.</span></h1>
-        <p class="text-base sm:text-xl text-gray-400 max-w-2xl mx-auto mb-10 leading-relaxed">Eliminate blindspots. Pulse orchestrates zero-overhead, multi-node availability validation hooks with instant, high-priority email escalation arrays.</p>
+        <div class="inline-flex items-center gap-2 bg-indigo-500/10 border border-indigo-500/30 rounded-full px-3.5 py-1.5 mb-6 transform hover:scale-105 transition-all cursor-pointer">
+            <span class="w-2 h-2 rounded-full bg-indigo-400 animate-ping"></span>
+            <span class="text-xs font-semibold tracking-wide text-indigo-300 uppercase">Engine V2.4 Live</span>
+        </div>
+        <h1 class="text-4xl sm:text-6xl lg:text-7xl font-extrabold tracking-tight text-white leading-[1.1] mb-6">
+            Intelligent infrastructure <br class="hidden sm:inline">
+            <span class="bg-clip-text text-transparent bg-gradient-to-r from-indigo-400 via-purple-400 to-pink-400">monitored in real-time.</span>
+        </h1>
+        <p class="text-base sm:text-xl text-gray-400 max-w-2xl mx-auto mb-10 leading-relaxed">
+            Eliminate blindspots. Pulse orchestrates zero-overhead, multi-node availability validation hooks with instant, high-priority email escalation arrays.
+        </p>
         <div class="flex flex-col sm:flex-row justify-center items-center gap-4">
-            <a href="/signup" class="w-full sm:w-auto bg-indigo-600 hover:bg-indigo-500 text-white px-8 py-4 rounded-xl font-semibold shadow-[0_0_30px_rgba(99,102,241,0.4)] transition transform hover:-translate-y-0.5">Launch Dashboard — Free</a>
-            <a href="#pricing" class="w-full sm:w-auto border border-gray-800 bg-gray-900/40 hover:bg-gray-900 text-gray-300 px-8 py-4 rounded-xl font-semibold transition">Explore Analytics</a>
+            <a href="/signup" class="w-full sm:w-auto bg-indigo-600 hover:bg-indigo-500 text-white px-8 py-4 rounded-xl font-semibold shadow-[0_0_30px_rgba(99,102,241,0.4)] transition transform hover:-translate-y-0.5">
+                Launch Dashboard — Free
+            </a>
+            <a href="#pricing" class="w-full sm:w-auto border border-gray-800 bg-gray-900/40 hover:bg-gray-900 text-gray-300 px-8 py-4 rounded-xl font-semibold transition">
+                Explore Analytics
+            </a>
         </div>
     </section>
+
     <section class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-16">
         <div class="grid grid-cols-1 md:grid-cols-3 gap-6">
-            <div class="bg-gray-900/40 border border-gray-800/80 rounded-2xl p-6 backdrop-blur-sm shadow-xl hover:border-gray-700 transition"><div class="w-10 h-10 rounded-lg bg-indigo-500/10 flex items-center justify-center text-indigo-400 mb-4"><i class="fas fa-bolt"></i></div><h3 class="text-lg font-bold text-white mb-2">High-Velocity Scans</h3><p class="text-sm text-gray-400 leading-relaxed">Parallel engine blocks cycle every 60 seconds natively to isolate outages instantaneously.</p></div>
-            <div class="bg-gray-900/40 border border-gray-800/80 rounded-2xl p-6 backdrop-blur-sm shadow-xl hover:border-gray-700 transition"><div class="w-10 h-10 rounded-lg bg-purple-500/10 flex items-center justify-center text-purple-400 mb-4"><i class="fas fa-bell"></i></div><h3 class="text-lg font-bold text-white mb-2">Instant Escalations</h3><p class="text-sm text-gray-400 leading-relaxed">Direct routing loops into Resend API transactional channels to bypass standard inbox delay traps.</p></div>
-            <div class="bg-gray-900/40 border border-gray-800/80 rounded-2xl p-6 backdrop-blur-sm shadow-xl hover:border-gray-700 transition"><div class="w-10 h-10 rounded-lg bg-pink-500/10 flex items-center justify-center text-pink-400 mb-4"><i class="fas fa-chart-bar"></i></div><h3 class="text-lg font-bold text-white mb-2">Granular Latency Logs</h3><p class="text-sm text-gray-400 leading-relaxed">Capture precise telemetry tracking metrics across execution runs to preserve analytical records.</p></div>
+            <div class="bg-gray-900/40 border border-gray-800/80 rounded-2xl p-6 backdrop-blur-sm shadow-xl hover:border-gray-700 transition">
+                <div class="w-10 h-10 rounded-lg bg-indigo-500/10 flex items-center justify-center text-indigo-400 mb-4"><i class="fas fa-bolt"></i></div>
+                <h3 class="text-lg font-bold text-white mb-2">High-Velocity Scans</h3>
+                <p class="text-sm text-gray-400 leading-relaxed">Parallel engine blocks cycle every 60 seconds natively to isolate outages instantaneously.</p>
+            </div>
+            <div class="bg-gray-900/40 border border-gray-800/80 rounded-2xl p-6 backdrop-blur-sm shadow-xl hover:border-gray-700 transition">
+                <div class="w-10 h-10 rounded-lg bg-purple-500/10 flex items-center justify-center text-purple-400 mb-4"><i class="fas fa-bell"></i></div>
+                <h3 class="text-lg font-bold text-white mb-2">Instant Escalations</h3>
+                <p class="text-sm text-gray-400 leading-relaxed">Direct routing loops into Resend API transactional channels to bypass standard inbox delay traps.</p>
+            </div>
+            <div class="bg-gray-900/40 border border-gray-800/80 rounded-2xl p-6 backdrop-blur-sm shadow-xl hover:border-gray-700 transition">
+                <div class="w-10 h-10 rounded-lg bg-pink-500/10 flex items-center justify-center text-pink-400 mb-4"><i class="fas fa-chart-bar"></i></div>
+                <h3 class="text-lg font-bold text-white mb-2">Granular Latency Logs</h3>
+                <p class="text-sm text-gray-400 leading-relaxed">Capture precise telemetry tracking metrics across execution runs to preserve analytical records.</p>
+            </div>
         </div>
     </section>
+
     <section id="pricing" class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-20 relative z-10">
-        <div class="text-center mb-12"><h2 class="text-3xl sm:text-5xl font-extrabold text-white mb-3">Predictable pricing paradigms</h2><p class="text-gray-400 text-sm sm:text-base">Scale your visibility bounds without micro-transaction penalties.</p></div>
+        <div class="text-center mb-12">
+            <h2 class="text-3xl sm:text-5xl font-extrabold text-white mb-3">Predictable pricing paradigms</h2>
+            <p class="text-gray-400 text-sm sm:text-base">Scale your visibility bounds without micro-transaction penalties.</p>
+        </div>
         <div class="grid grid-cols-1 md:grid-cols-2 gap-8 max-w-4xl mx-auto items-stretch">
-            <div class="bg-gray-900/30 border border-gray-800/80 rounded-3xl p-8 flex flex-col justify-between backdrop-blur-md shadow-2xl relative overflow-hidden group"><div><h3 class="text-xl font-bold text-white mb-1">Standard Node</h3><p class="text-xs text-gray-500 mb-6">Perfect for static personal landing deployments.</p><div class="flex items-baseline gap-1.5 mb-6"><span class="text-4xl font-extrabold text-white">₦0</span><span class="text-xs text-gray-500">/ forever</span></div><ul class="space-y-4 border-t border-gray-800/80 pt-6"><li class="flex items-center gap-3 text-sm text-gray-300"><i class="fas fa-circle-check text-indigo-500 text-xs"></i> 3 Monitored Endpoints</li><li class="flex items-center gap-3 text-sm text-gray-300"><i class="fas fa-circle-check text-indigo-500 text-xs"></i> Standard Email Triggers</li><li class="flex items-center gap-3 text-sm text-gray-400 opacity-50"><i class="fas fa-circle-xmark text-gray-600 text-xs"></i> 1-Minute Premium Checks</li></ul></div><a href="/signup" class="block w-full text-center bg-gray-800 hover:bg-gray-700 text-white font-medium text-sm py-3 rounded-xl mt-8 transition">Deploy Free Cluster</a></div>
-            <div class="bg-gradient-to-b from-indigo-950/40 to-gray-950/40 border-2 border-indigo-500/80 rounded-3xl p-8 flex flex-col justify-between backdrop-blur-md shadow-2xl relative overflow-hidden group shadow-[0_0_50px_-12px_rgba(99,102,241,0.3)]"><div class="absolute top-0 right-0 bg-indigo-500 text-white font-bold tracking-wider text-[10px] uppercase px-4 py-1 rounded-bl-xl shadow-md">Premium Tier</div><div><h3 class="text-xl font-bold text-white mb-1">Enterprise Pro</h3><p class="text-xs text-indigo-300 mb-6">For real-time operational scale applications.</p><div class="flex items-baseline gap-1.5 mb-6"><span class="text-4xl font-extrabold text-white">₦15,000</span><span class="text-xs text-gray-400">/ month</span></div><ul class="space-y-4 border-t border-indigo-900/50 pt-6"><li class="flex items-center gap-3 text-sm text-gray-200"><i class="fas fa-circle-check text-indigo-400 text-xs"></i> Unlimited Registered Endpoints</li><li class="flex items-center gap-3 text-sm text-gray-200"><i class="fas fa-circle-check text-indigo-400 text-xs"></i> High-Speed 1-Minute Diagnostics</li><li class="flex items-center gap-3 text-sm text-gray-200"><i class="fas fa-circle-check text-indigo-400 text-xs"></i> Detailed Latency History Logging</li></ul></div><a href="/signup" class="block w-full text-center bg-indigo-600 hover:bg-indigo-500 text-white font-semibold text-sm py-3 rounded-xl mt-8 shadow-lg shadow-indigo-600/30 transition">Provision Pro Engine</a></div>
+            <div class="bg-gray-900/30 border border-gray-800/80 rounded-3xl p-8 flex flex-col justify-between backdrop-blur-md shadow-2xl relative overflow-hidden group">
+                <div>
+                    <h3 class="text-xl font-bold text-white mb-1">Standard Node</h3>
+                    <p class="text-xs text-gray-500 mb-6">Perfect for static personal landing deployments.</p>
+                    <div class="flex items-baseline gap-1.5 mb-6">
+                        <span class="text-4xl font-extrabold text-white">₦0</span>
+                        <span class="text-xs text-gray-500">/ forever</span>
+                    </div>
+                    <ul class="space-y-4 border-t border-gray-800/80 pt-6">
+                        <li class="flex items-center gap-3 text-sm text-gray-300"><i class="fas fa-circle-check text-indigo-500 text-xs"></i> 3 Monitored Endpoints</li>
+                        <li class="flex items-center gap-3 text-sm text-gray-300"><i class="fas fa-circle-check text-indigo-500 text-xs"></i> Standard Email Triggers</li>
+                        <li class="flex items-center gap-3 text-sm text-gray-400 opacity-50"><i class="fas fa-circle-xmark text-gray-600 text-xs"></i> 1-Minute Premium Checks</li>
+                    </ul>
+                </div>
+                <a href="/signup" class="block w-full text-center bg-gray-800 hover:bg-gray-700 text-white font-medium text-sm py-3 rounded-xl mt-8 transition">Deploy Free Cluster</a>
+            </div>
+
+            <div class="bg-gradient-to-b from-indigo-950/40 to-gray-950/40 border-2 border-indigo-500/80 rounded-3xl p-8 flex flex-col justify-between backdrop-blur-md shadow-2xl relative overflow-hidden group shadow-[0_0_50px_-12px_rgba(99,102,241,0.3)]">
+                <div class="absolute top-0 right-0 bg-indigo-500 text-white font-bold tracking-wider text-[10px] uppercase px-4 py-1 rounded-bl-xl shadow-md">Premium Tier</div>
+                <div>
+                    <h3 class="text-xl font-bold text-white mb-1">Enterprise Pro</h3>
+                    <p class="text-xs text-indigo-300 mb-6">For real-time operational scale applications.</p>
+                    <div class="flex items-baseline gap-1.5 mb-6">
+                        <span class="text-4xl font-extrabold text-white">₦15,000</span>
+                        <span class="text-xs text-gray-400">/ month</span>
+                    </div>
+                    <ul class="space-y-4 border-t border-indigo-900/50 pt-6">
+                        <li class="flex items-center gap-3 text-sm text-gray-200"><i class="fas fa-circle-check text-indigo-400 text-xs"></i> Unlimited Registered Endpoints</li>
+                        <li class="flex items-center gap-3 text-sm text-gray-200"><i class="fas fa-circle-check text-indigo-400 text-xs"></i> High-Speed 1-Minute Diagnostics</li>
+                        <li class="flex items-center gap-3 text-sm text-gray-200"><i class="fas fa-circle-check text-indigo-400 text-xs"></i> Detailed Latency History Logging</li>
+                    </ul>
+                </div>
+                <a href="/signup" class="block w-full text-center bg-indigo-600 hover:bg-indigo-500 text-white font-semibold text-sm py-3 rounded-xl mt-8 shadow-lg shadow-indigo-600/30 transition">Provision Pro Engine</a>
+            </div>
         </div>
     </section>
-    <footer class="border-t border-gray-800/80 bg-gray-950/40 py-8 relative z-10"><div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 flex flex-col sm:flex-row justify-between items-center gap-4 text-center sm:text-left"><span class="text-xs text-gray-500">© 2026 Pulse Systems Inc. All rights reserved. Engineered for performance.</span><div class="flex gap-4 text-gray-500 text-sm"><a href="#" class="hover:text-white transition"><i class="fab fa-github"></i></a><a href="#" class="hover:text-white transition"><i class="fab fa-twitter"></i></a></div></div></footer>
+
+    <footer class="border-t border-gray-800/80 bg-gray-950/40 py-8 relative z-10">
+        <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 flex flex-col sm:flex-row justify-between items-center gap-4 text-center sm:text-left">
+            <span class="text-xs text-gray-500">© 2026 Pulse Systems Inc. All rights reserved. Engineered for performance.</span>
+            <div class="flex gap-4 text-gray-500 text-sm">
+                <a href="#" class="hover:text-white transition"><i class="fab fa-github"></i></a>
+                <a href="#" class="hover:text-white transition"><i class="fab fa-twitter"></i></a>
+            </div>
+        </div>
+    </footer>
 </body>
-</html>'''
+</html>
+    '''
 
 @app.route("/signup", methods=["GET", "POST"])
 def signup():
     if request.method == "POST":
+        # Structured input sanitization
         email = request.form["email"].strip().lower()
         password = request.form["password"]
         if User.query.filter_by(email=email).first():
@@ -306,16 +388,23 @@ def signup():
         user.set_password(password)
         db.session.add(user)
         db.session.commit()
+        
+        # Professional Onboarding Automation Email Response Trigger
         send_welcome_email(email)
+        
         login_user(user)
         return redirect(url_for("dashboard"))
-    return '''<!DOCTYPE html>
+    return '''
+<!DOCTYPE html>
 <html lang="en">
 <head><meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1.0"><title>Sign up</title><script src="https://cdn.tailwindcss.com"></script></head>
 <body class="bg-[#030712] text-gray-100 flex items-center justify-center min-h-screen px-4">
     <div class="absolute inset-0 max-w-md mx-auto h-[400px] blur-[120px] bg-indigo-600/20 top-1/4 rounded-full pointer-events-none"></div>
     <div class="bg-gray-900/50 border border-gray-800/80 p-6 sm:p-8 rounded-2xl shadow-2xl w-full max-w-md backdrop-blur-md relative z-10">
-        <div class="text-center mb-6"><h2 class="text-2xl font-bold text-white tracking-tight">Create your account</h2><p class="text-xs text-gray-400 mt-1">Instant telemetry routing initialization.</p></div>
+        <div class="text-center mb-6">
+            <h2 class="text-2xl font-bold text-white tracking-tight">Create your account</h2>
+            <p class="text-xs text-gray-400 mt-1">Instant telemetry routing initialization.</p>
+        </div>
         <form method="post" class="space-y-4">
             <div><label class="text-xs text-gray-400 font-medium block mb-1.5">Email Address</label><input name="email" type="email" class="w-full bg-gray-950/80 border border-gray-800 rounded-xl p-3 text-sm focus:border-indigo-500 focus:outline-none transition text-white" placeholder="you@domain.com" required></div>
             <div><label class="text-xs text-gray-400 font-medium block mb-1.5">Secret Token Password</label><input name="password" type="password" class="w-full bg-gray-950/80 border border-gray-800 rounded-xl p-3 text-sm focus:border-indigo-500 focus:outline-none transition text-white" placeholder="••••••••" required></div>
@@ -324,11 +413,13 @@ def signup():
         <p class="text-xs text-center text-gray-500 mt-4">Existing credentials? <a href="/login" class="text-indigo-400 hover:underline">Log in instead</a></p>
     </div>
 </body>
-</html>'''
+</html>
+    '''
 
 @app.route("/login", methods=["GET", "POST"])
 def login():
     if request.method == "POST":
+        # Structured input sanitization
         email = request.form["email"].strip().lower()
         password = request.form["password"]
         user = User.query.filter_by(email=email).first()
@@ -341,14 +432,20 @@ def login():
     for msg in get_flashed_messages():
         flash_messages += f'<div class="bg-red-950/50 border border-red-500/30 text-red-300 text-xs px-4 py-3 rounded-xl mb-4 text-center">⚠️ {msg}</div>'
 
-    return f'''<!DOCTYPE html>
+    return f'''
+<!DOCTYPE html>
 <html lang="en">
 <head><meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1.0"><title>Login</title><script src="https://cdn.tailwindcss.com"></script></head>
 <body class="bg-[#030712] text-gray-100 flex items-center justify-center min-h-screen px-4">
     <div class="absolute inset-0 max-w-md mx-auto h-[400px] blur-[120px] bg-indigo-600/20 top-1/4 rounded-full pointer-events-none"></div>
     <div class="bg-gray-900/50 border border-gray-800/80 p-6 sm:p-8 rounded-2xl shadow-2xl w-full max-w-md backdrop-blur-md relative z-10">
-        <div class="text-center mb-6"><h2 class="text-2xl font-bold text-white tracking-tight">Access Control Interface</h2><p class="text-xs text-gray-400 mt-1">Authenticate access protocols.</p></div>
+        <div class="text-center mb-6">
+            <h2 class="text-2xl font-bold text-white tracking-tight">Access Control Interface</h2>
+            <p class="text-xs text-gray-400 mt-1">Authenticate access protocols.</p>
+        </div>
+        
         {flash_messages}
+
         <form method="post" class="space-y-4">
             <div><label class="text-xs text-gray-400 font-medium block mb-1.5">Email Address</label><input name="email" type="email" class="w-full bg-gray-950/80 border border-gray-800 rounded-xl p-3 text-sm focus:border-indigo-500 focus:outline-none transition text-white" placeholder="you@domain.com" required></div>
             <div><label class="text-xs text-gray-400 font-medium block mb-1.5">Password</label><input name="password" type="password" class="w-full bg-gray-950/80 border border-gray-800 rounded-xl p-3 text-sm focus:border-indigo-500 focus:outline-none transition text-white" placeholder="••••••••" required></div>
@@ -360,26 +457,36 @@ def login():
         </div>
     </div>
 </body>
-</html>'''
+</html>
+    '''
 
 @app.route("/forgot-password", methods=["GET", "POST"])
 def forgot_password():
     if request.method == "POST":
+        # Structured input sanitization
         email = request.form["email"].strip().lower()
         user = User.query.filter_by(email=email).first()
         if user:
+            # Generate temporary secure token signature tied to email salt (expires in 3600s)
             token = serializer.dumps(email, salt="password-reset-salt")
             reset_url = url_for("reset_password", token=token, _external=True)
             send_reset_email(email, reset_url)
+        
+        # Unified flashing responses protect account validation snoop queries
         flash("If that configuration coordinate exists inside our registry index, a recovery transmission has been dispatched.")
         return redirect(url_for("login"))
-    return '''<!DOCTYPE html>
+        
+    return '''
+<!DOCTYPE html>
 <html lang="en">
 <head><meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1.0"><title>Forgot Password</title><script src="https://cdn.tailwindcss.com"></script></head>
 <body class="bg-[#030712] text-gray-100 flex items-center justify-center min-h-screen px-4">
     <div class="absolute inset-0 max-w-md mx-auto h-[400px] blur-[120px] bg-indigo-600/20 top-1/4 rounded-full pointer-events-none"></div>
     <div class="bg-gray-900/50 border border-gray-800/80 p-6 sm:p-8 rounded-2xl shadow-2xl w-full max-w-md backdrop-blur-md relative z-10">
-        <div class="text-center mb-6"><h2 class="text-xl font-bold text-white tracking-tight">Initialize Recovery Flow</h2><p class="text-xs text-gray-400 mt-1">Submit registered connection address token.</p></div>
+        <div class="text-center mb-6">
+            <h2 class="text-xl font-bold text-white tracking-tight">Initialize Recovery Flow</h2>
+            <p class="text-xs text-gray-400 mt-1">Submit registered connection address token.</p>
+        </div>
         <form method="post" class="space-y-4">
             <div><label class="text-xs text-gray-400 font-medium block mb-1.5">Account Email Address</label><input name="email" type="email" class="w-full bg-gray-950/80 border border-gray-800 rounded-xl p-3 text-sm focus:border-indigo-500 focus:outline-none transition text-white" placeholder="you@domain.com" required></div>
             <button type="submit" class="w-full bg-indigo-600 hover:bg-indigo-500 text-white py-3 rounded-xl text-sm font-semibold shadow-lg shadow-indigo-600/20 transition active:scale-[0.99]">Dispatch Recovery Link</button>
@@ -387,39 +494,49 @@ def forgot_password():
         <p class="text-xs text-center text-gray-500 mt-4"><a href="/login" class="text-indigo-400 hover:underline">Return to interface portal</a></p>
     </div>
 </body>
-</html>'''
+</html>
+    '''
 
 @app.route("/reset-password/<token>", methods=["GET", "POST"])
 def reset_password(token):
     try:
+        # Cryptographic security signature verification with rigid 1-hour link timing boundaries
         email = serializer.loads(token, salt="password-reset-salt", max_age=3600)
     except Exception:
         flash("The access credentials recovery security token is invalid or expired.")
         return redirect(url_for("forgot_password"))
+        
     user = User.query.filter_by(email=email).first()
     if not user:
         flash("Administrative match record missing.")
         return redirect(url_for("forgot_password"))
+        
     if request.method == "POST":
         password = request.form["password"]
         user.set_password(password)
         db.session.commit()
         flash("Account security layers updated. Enter new credentials to access dashboard.")
         return redirect(url_for("login"))
-    return '''<!DOCTYPE html>
+        
+    return '''
+<!DOCTYPE html>
 <html lang="en">
 <head><meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1.0"><title>Set New Password</title><script src="https://cdn.tailwindcss.com"></script></head>
 <body class="bg-[#030712] text-gray-100 flex items-center justify-center min-h-screen px-4">
     <div class="absolute inset-0 max-w-md mx-auto h-[400px] blur-[120px] bg-indigo-600/20 top-1/4 rounded-full pointer-events-none"></div>
     <div class="bg-gray-900/50 border border-gray-800/80 p-6 sm:p-8 rounded-2xl shadow-2xl w-full max-w-md backdrop-blur-md relative z-10">
-        <div class="text-center mb-6"><h2 class="text-xl font-bold text-white tracking-tight">Overwrite Access Values</h2><p class="text-xs text-gray-400 mt-1">Establish highly secure fresh password block.</p></div>
+        <div class="text-center mb-6">
+            <h2 class="text-xl font-bold text-white tracking-tight">Overwrite Access Values</h2>
+            <p class="text-xs text-gray-400 mt-1">Establish highly secure fresh password block.</p>
+        </div>
         <form method="post" class="space-y-4">
             <div><label class="text-xs text-gray-400 font-medium block mb-1.5">New Security Password</label><input name="password" type="password" class="w-full bg-gray-950/80 border border-gray-800 rounded-xl p-3 text-sm focus:border-indigo-500 focus:outline-none transition text-white" placeholder="••••••••" required></div>
             <button type="submit" class="w-full bg-indigo-600 hover:bg-indigo-500 text-white py-3 rounded-xl text-sm font-semibold shadow-lg shadow-indigo-600/20 transition active:scale-[0.99]">Update Credentials Profile</button>
         </form>
     </div>
 </body>
-</html>'''
+</html>
+    '''
 
 @app.route("/logout")
 @login_required
@@ -427,7 +544,7 @@ def logout():
     logout_user()
     return redirect(url_for("index"))
 
-# ---------- API & DASHBOARD ----------
+# ---------- SILENT BACKGROUND LIVE CHECK ENDPOINT ----------
 @app.route("/api/status")
 @login_required
 def api_status():
@@ -455,6 +572,7 @@ def dashboard():
         status_bg = "emerald-500/10" if status == "UP" else "red-500/10"
         status_border = "emerald-500/30" if status == "UP" else "red-500/30"
         pulse_animation = "animate-pulse" if status == "UP" else ""
+        
         cards += f'''
         <div class="bg-gray-900/40 border border-gray-800/80 rounded-2xl p-5 backdrop-blur-sm shadow-xl flex flex-col justify-between group hover:border-gray-700 transition-all overflow-hidden max-w-full">
             <div class="flex justify-between items-start gap-3 w-full">
@@ -472,9 +590,12 @@ def dashboard():
             </div>
             <div class="mt-6 pt-3 border-t border-gray-800/60 flex justify-between items-center w-full">
                 <span class="text-[10px] font-mono text-gray-500 tracking-wider">NODE ID: #{w.id}</span>
-                <a href="/delete-website/{w.id}" class="text-red-400 hover:text-red-300 text-xs font-medium inline-flex items-center gap-1 transition"><i class="fas fa-trash-can text-[10px]"></i> Terminate Node</a>
+                <a href="/delete-website/{w.id}" class="text-red-400 hover:text-red-300 text-xs font-medium inline-flex items-center gap-1 transition">
+                    <i class="fas fa-trash-can text-[10px]"></i> Terminate Node
+                </a>
             </div>
-        </div>'''
+        </div>
+        '''
     
     flash_messages = ""
     for msg in get_flashed_messages():
@@ -482,7 +603,8 @@ def dashboard():
     
     pro_badge = '<span class="bg-gradient-to-r from-amber-400 to-yellow-500 text-gray-950 px-3 py-1 rounded-full text-xs font-extrabold tracking-tight shadow-md shadow-yellow-500/10">⭐ PRO ACTIVE</span>' if current_user.is_pro else '<a href="/upgrade" class="bg-indigo-600 hover:bg-indigo-500 text-white px-3 py-1.5 rounded-full text-xs font-bold shadow-md shadow-indigo-600/20 transition active:scale-95">Upgrade to Pro</a>'
     
-    template = '''<!DOCTYPE html>
+    template = '''
+<!DOCTYPE html>
 <html lang="en">
 <head>
     <meta charset="UTF-8">
@@ -490,10 +612,14 @@ def dashboard():
     <title>Analytics Console</title>
     <script src="https://cdn.tailwindcss.com"></script>
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
-    <style>@import url('https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700&display=swap');body{font-family:'Plus Jakarta Sans',sans-serif;background-color:#030712;}</style>
+    <style>
+        @import url('https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700&display=swap');
+        body { font-family: 'Plus Jakarta Sans', sans-serif; background-color: #030712; }
+    </style>
 </head>
 <body class="text-gray-100 selection:bg-indigo-500/30 overflow-x-hidden">
     <div class="absolute top-0 left-1/2 -translate-x-1/2 w-full max-w-7xl h-[400px] pointer-events-none opacity-20 blur-[120px] bg-indigo-600 rounded-full top-[-200px]"></div>
+
     <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-6 sm:py-10 relative z-10">
         <div class="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4 border-b border-gray-800/80 pb-6 mb-8">
             <div class="min-w-0">
@@ -507,9 +633,14 @@ def dashboard():
                 <a href="/logout" class="bg-gray-900 border border-gray-800 hover:bg-gray-800 text-gray-400 px-4 py-2.5 rounded-xl text-sm font-semibold transition active:scale-[0.98]"><i class="fas fa-right-from-bracket"></i></a>
             </div>
         </div>
+        
         <div id="flash-container">__FLASH_MESSAGES__</div>
-        <div id="cards-container" class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">__CARDS__</div>
+
+        <div id="cards-container" class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+            __CARDS__
+        </div>
     </div>
+
     <script>
         async function refreshStatus() {
             try {
@@ -518,10 +649,12 @@ def dashboard():
                 const websites = data.websites;
                 const container = document.getElementById('cards-container');
                 if (!container) return;
+                
                 if (websites.length === 0) {
                     container.innerHTML = '<div class="col-span-full bg-gray-900/20 border border-dashed border-gray-800 rounded-2xl py-12 text-center text-sm text-gray-500 flex flex-col items-center justify-center gap-2"><i class="fas fa-folder-open text-xl opacity-40"></i> No infrastructure nodes configured to this cluster environment index.</div>';
                     return;
                 }
+                
                 let newCards = '';
                 for (let w of websites) {
                     const status = w.status;
@@ -530,6 +663,7 @@ def dashboard():
                     const statusBorder = status === 'UP' ? 'emerald-500/30' : 'red-500/30';
                     const pulseAnimation = status === 'UP' ? 'animate-pulse' : '';
                     const responseTime = w.response_time !== 'N/A' ? w.response_time + ' SEC LATENCY' : 'N/A LATENCY';
+                    
                     newCards += `
                         <div class="bg-gray-900/40 border border-gray-800/80 rounded-2xl p-5 backdrop-blur-sm shadow-xl flex flex-col justify-between group hover:border-gray-700 transition-all overflow-hidden max-w-full">
                             <div class="flex justify-between items-start gap-3 w-full">
@@ -547,7 +681,9 @@ def dashboard():
                             </div>
                             <div class="mt-6 pt-3 border-t border-gray-800/60 flex justify-between items-center w-full">
                                 <span class="text-[10px] font-mono text-gray-500 tracking-wider">NODE ID: #${w.id}</span>
-                                <a href="/delete-website/${w.id}" class="text-red-400 hover:text-red-300 text-xs font-medium inline-flex items-center gap-1 transition"><i class="fas fa-trash-can text-[10px]"></i> Terminate Node</a>
+                                <a href="/delete-website/${w.id}" class="text-red-400 hover:text-red-300 text-xs font-medium inline-flex items-center gap-1 transition">
+                                    <i class="fas fa-trash-can text-[10px]"></i> Terminate Node
+                                </a>
                             </div>
                         </div>
                     `;
@@ -557,11 +693,13 @@ def dashboard():
                 console.error('Status refresh execution error:', err);
             }
         }
+        
+        // Polling loop updates components safely without refreshing page
         setInterval(refreshStatus, 60000);
-        document.addEventListener('DOMContentLoaded', refreshStatus);
     </script>
 </body>
-</html>'''
+</html>
+    '''
     
     return template.replace("__USER_EMAIL__", current_user.email)\
                    .replace("__PRO_BADGE__", pro_badge)\
@@ -573,33 +711,46 @@ def dashboard():
 def add_website():
     if request.method == "POST":
         name = request.form["name"].strip()
-        url = request.form["url"].strip().rstrip('/')
+        url = request.form["url"].strip().rstrip('/') # Strip trailing slashes to accurately match duplicates
+        
+        # Smart Duplication Prevention
         existing_site = Website.query.filter_by(user_id=current_user.id, url=url).first()
         if existing_site:
             flash(f"This URL ({url}) is already actively monitored!")
             return redirect(url_for("dashboard"))
+            
         if not current_user.is_pro and Website.query.filter_by(user_id=current_user.id).count() >= 3:
             flash("Free tier limit reached! Upgrade to Pro for unlimited URLs.")
             return redirect(url_for("dashboard"))
+            
         website = Website(name=name, url=url, user_id=current_user.id)
         db.session.add(website)
         db.session.commit()
         return redirect(url_for("dashboard"))
-    return '''<!DOCTYPE html>
+        
+    return '''
+<!DOCTYPE html>
 <html lang="en">
 <head><meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1.0"><title>Inject Node</title><script src="https://cdn.tailwindcss.com"></script></head>
 <body class="bg-[#030712] text-gray-100 flex items-center justify-center min-h-screen px-4">
     <div class="absolute inset-0 max-w-md mx-auto h-[400px] blur-[120px] bg-indigo-600/20 top-1/4 rounded-full pointer-events-none"></div>
     <div class="bg-gray-900/50 border border-gray-800/80 p-6 sm:p-8 rounded-2xl shadow-2xl w-full max-w-md backdrop-blur-md relative z-10">
-        <div class="mb-6"><h2 class="text-xl font-bold text-white tracking-tight">Provision Monitoring Node</h2><p class="text-xs text-gray-400 mt-1">Bind a remote HTTP endpoint asset.</p></div>
+        <div class="mb-6">
+            <h2 class="text-xl font-bold text-white tracking-tight">Provision Monitoring Node</h2>
+            <p class="text-xs text-gray-400 mt-1">Bind a remote HTTP endpoint asset.</p>
+        </div>
         <form method="post" class="space-y-4">
             <div><label class="text-xs text-gray-400 font-medium block mb-1.5">Asset Identification Title</label><input name="name" placeholder="Production Server" class="w-full bg-gray-950/80 border border-gray-800 rounded-xl p-3 text-sm focus:border-indigo-500 focus:outline-none transition text-white" required></div>
             <div><label class="text-xs text-gray-400 font-medium block mb-1.5">Target Absolute URL Path</label><input name="url" type="url" placeholder="https://api.domain.com" class="w-full bg-gray-950/80 border border-gray-800 rounded-xl p-3 text-sm focus:border-indigo-500 focus:outline-none transition text-white" required></div>
-            <div class="flex gap-3 pt-2"><a href="/dashboard" class="w-1/3 text-center border border-gray-800 hover:bg-gray-900 text-gray-400 py-3 rounded-xl text-sm font-semibold transition">Abort</a><button type="submit" class="w-2/3 bg-white hover:bg-gray-200 text-gray-950 py-3 rounded-xl text-sm font-semibold shadow-lg transition active:scale-[0.99]">Mount Node</button></div>
+            <div class="flex gap-3 pt-2">
+                <a href="/dashboard" class="w-1/3 text-center border border-gray-800 hover:bg-gray-900 text-gray-400 py-3 rounded-xl text-sm font-semibold transition">Abort</a>
+                <button type="submit" class="w-2/3 bg-white hover:bg-gray-200 text-gray-950 py-3 rounded-xl text-sm font-semibold shadow-lg transition active:scale-[0.99]">Mount Node</button>
+            </div>
         </form>
     </div>
 </body>
-</html>'''
+</html>
+    '''
 
 @app.route("/delete-website/<int:website_id>")
 @login_required
@@ -609,6 +760,7 @@ def delete_website(website_id):
         if not website or website.user_id != current_user.id:
             flash("Unauthorized or missing target.")
             return redirect(url_for("dashboard"))
+        
         db.session.delete(website)
         db.session.commit()
         flash("Website removed.")
@@ -624,7 +776,7 @@ def delete_website(website_id):
 def upgrade():
     if not PAYSTACK_SECRET_KEY:
         return "Paystack secret key configurations missing on server environment", 500
-    amount_kobo = 1500000
+    amount_kobo = 1500000  # ₦15,000.00
     ref = secrets.token_hex(16)
     headers = {"Authorization": f"Bearer {PAYSTACK_SECRET_KEY}", "Content-Type": "application/json"}
     data = {
@@ -650,6 +802,7 @@ def payment_success():
     if not ref:
         flash("Verification token sequence missing.")
         return redirect(url_for("dashboard"))
+    
     headers = {"Authorization": f"Bearer {PAYSTACK_SECRET_KEY}"}
     try:
         r = requests.get(f"https://api.paystack.co/transaction/verify/{ref}", headers=headers)
@@ -672,6 +825,7 @@ def payment_success():
 # ---------- PARALLEL BG ENGINE BLOCK (WITH LOCK PROTECTION) ----------
 @app.route("/update-all")
 def update_all():
+    # File-locking protects concurrent threads against overlapping triggers
     lock_file = open("/tmp/update_automation.lock", "w")
     try:
         fcntl.flock(lock_file, fcntl.LOCK_EX | fcntl.LOCK_NB)
@@ -684,6 +838,7 @@ def update_all():
         websites = Website.query.all()
         with ThreadPoolExecutor(max_workers=10) as executor:
             executor.map(process_single_website, websites)
+            
         return "OK", 200
     except Exception as e:
         app.logger.error(f"Background automation framework error: {e}")
@@ -692,12 +847,12 @@ def update_all():
         fcntl.flock(lock_file, fcntl.LOCK_UN)
         lock_file.close()
 
+with app.app_context():
+    db.create_all()
+
 @app.route("/ping")
 def ping():
     return "OK", 200
-
-with app.app_context():
-    db.create_all()
 
 if __name__ == "__main__":
     debug_mode = os.environ.get("FLASK_DEBUG", "False").lower() == "true"

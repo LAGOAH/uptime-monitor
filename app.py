@@ -1,4 +1,4 @@
-from flask import Flask, redirect, url_for, request, flash, get_flashed_messages, jsonify
+from flask import Flask, redirect, url_for, request, flash, get_flashed_messages, send_from_directory
 from flask_sqlalchemy import SQLAlchemy
 from flask_login import LoginManager, UserMixin, login_user, login_required, logout_user, current_user
 from werkzeug.security import generate_password_hash, check_password_hash
@@ -239,24 +239,37 @@ def process_single_website(website):
             db.session.rollback()
             app.logger.error(f"Exception scanning targets for {website.url}: {e}")
 
+# ---------- PRODUCTION SVG FAVICON ROUTE SYSTEM ----------
+@app.route('/favicon.ico')
+@app.route('/static/favicon.svg')
+def favicon():
+    # Returns the professional vector icon with accurate image context to eliminate crashes
+    root_dir = os.path.abspath(os.path.dirname(__file__))
+    return send_from_directory(
+        os.path.join(root_dir, 'static'), 
+        'favicon.svg', 
+        mimetype='image/svg+xml'
+    )
+
 # ---------- ROUTES ----------
 
 @app.route("/")
 def index():
     if current_user.is_authenticated:
         return redirect(url_for("dashboard"))
-    return '''
+    return f'''
 <!DOCTYPE html>
 <html lang="en" class="scroll-smooth">
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>📡 Pulse - Next-Gen Autonomous Uptime Monitoring</title>
+    <title>📡 Pulse | Autonomous Uptime Infrastructure</title>
+    <link rel="icon" type="image/svg+xml" href="/static/favicon.svg">
     <script src="https://cdn.tailwindcss.com"></script>
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
     <style>
         @import url('https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&display=swap');
-        body { font-family: 'Plus Jakarta Sans', sans-serif; background-color: #030712; }
+        body {{ font-family: 'Plus Jakarta Sans', sans-serif; background-color: #030712; }}
     </style>
 </head>
 <body class="text-gray-100 overflow-x-hidden selection:bg-indigo-500/30">
@@ -271,6 +284,9 @@ def index():
                 <span class="text-lg font-bold tracking-tight bg-clip-text text-transparent bg-gradient-to-r from-white via-gray-200 to-gray-400">PULSE</span>
             </div>
             <div class="flex items-center gap-3 sm:gap-4">
+                <a href="mailto:lazarusgodswillahmadu@gmail.com?subject=Pulse%20Support%20Request&body=Describe%20your%20issue%20or%20feedback...%0A%0A---%0AApp%20Version%3A%20v2.4" class="text-sm font-medium text-gray-400 hover:text-white transition px-3 py-1.5 rounded-lg hover:bg-gray-900 flex items-center gap-1.5">
+                    <i class="fas fa-headset text-indigo-400"></i> Contact Us
+                </a>
                 <a href="/login" class="text-sm font-medium text-gray-400 hover:text-white transition px-3 py-1.5 rounded-lg hover:bg-gray-900">Log in</a>
                 <a href="/signup" class="text-sm font-medium bg-white text-gray-950 px-4 py-2 rounded-xl hover:bg-gray-200 transition shadow-[0_4px_20px_rgba(255,255,255,0.15)] transform active:scale-95">Sign up free</a>
             </div>
@@ -365,9 +381,9 @@ def index():
     <footer class="border-t border-gray-800/80 bg-gray-950/40 py-8 relative z-10">
         <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 flex flex-col sm:flex-row justify-between items-center gap-4 text-center sm:text-left">
             <span class="text-xs text-gray-500">© 2026 Pulse Systems Inc. All rights reserved. Engineered for performance.</span>
-            <div class="flex gap-4 text-gray-500 text-sm">
-                <a href="#" class="hover:text-white transition"><i class="fab fa-github"></i></a>
-                <a href="#" class="hover:text-white transition"><i class="fab fa-twitter"></i></a>
+            <div class="flex items-center gap-6 text-sm">
+                <a href="#" class="text-gray-500 hover:text-white transition"><i class="fab fa-github"></i></a>
+                <a href="#" class="text-gray-500 hover:text-white transition"><i class="fab fa-twitter"></i></a>
             </div>
         </div>
     </footer>
@@ -378,7 +394,6 @@ def index():
 @app.route("/signup", methods=["GET", "POST"])
 def signup():
     if request.method == "POST":
-        # Structured input sanitization
         email = request.form["email"].strip().lower()
         password = request.form["password"]
         if User.query.filter_by(email=email).first():
@@ -389,15 +404,19 @@ def signup():
         db.session.add(user)
         db.session.commit()
         
-        # Professional Onboarding Automation Email Response Trigger
         send_welcome_email(email)
-        
         login_user(user)
         return redirect(url_for("dashboard"))
     return '''
 <!DOCTYPE html>
 <html lang="en">
-<head><meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1.0"><title>Sign up</title><script src="https://cdn.tailwindcss.com"></script></head>
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Pulse | Provision Node Cluster</title>
+    <link rel="icon" type="image/svg+xml" href="/static/favicon.svg">
+    <script src="https://cdn.tailwindcss.com"></script>
+</head>
 <body class="bg-[#030712] text-gray-100 flex items-center justify-center min-h-screen px-4">
     <div class="absolute inset-0 max-w-md mx-auto h-[400px] blur-[120px] bg-indigo-600/20 top-1/4 rounded-full pointer-events-none"></div>
     <div class="bg-gray-900/50 border border-gray-800/80 p-6 sm:p-8 rounded-2xl shadow-2xl w-full max-w-md backdrop-blur-md relative z-10">
@@ -419,7 +438,6 @@ def signup():
 @app.route("/login", methods=["GET", "POST"])
 def login():
     if request.method == "POST":
-        # Structured input sanitization
         email = request.form["email"].strip().lower()
         password = request.form["password"]
         user = User.query.filter_by(email=email).first()
@@ -435,7 +453,13 @@ def login():
     return f'''
 <!DOCTYPE html>
 <html lang="en">
-<head><meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1.0"><title>Login</title><script src="https://cdn.tailwindcss.com"></script></head>
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Pulse | Secure Access Control Interface</title>
+    <link rel="icon" type="image/svg+xml" href="/static/favicon.svg">
+    <script src="https://cdn.tailwindcss.com"></script>
+</head>
 <body class="bg-[#030712] text-gray-100 flex items-center justify-center min-h-screen px-4">
     <div class="absolute inset-0 max-w-md mx-auto h-[400px] blur-[120px] bg-indigo-600/20 top-1/4 rounded-full pointer-events-none"></div>
     <div class="bg-gray-900/50 border border-gray-800/80 p-6 sm:p-8 rounded-2xl shadow-2xl w-full max-w-md backdrop-blur-md relative z-10">
@@ -463,23 +487,26 @@ def login():
 @app.route("/forgot-password", methods=["GET", "POST"])
 def forgot_password():
     if request.method == "POST":
-        # Structured input sanitization
         email = request.form["email"].strip().lower()
         user = User.query.filter_by(email=email).first()
         if user:
-            # Generate temporary secure token signature tied to email salt (expires in 3600s)
             token = serializer.dumps(email, salt="password-reset-salt")
             reset_url = url_for("reset_password", token=token, _external=True)
             send_reset_email(email, reset_url)
         
-        # Unified flashing responses protect account validation snoop queries
         flash("If that configuration coordinate exists inside our registry index, a recovery transmission has been dispatched.")
         return redirect(url_for("login"))
         
     return '''
 <!DOCTYPE html>
 <html lang="en">
-<head><meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1.0"><title>Forgot Password</title><script src="https://cdn.tailwindcss.com"></script></head>
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Pulse | Authorization Recovery Protocol</title>
+    <link rel="icon" type="image/svg+xml" href="/static/favicon.svg">
+    <script src="https://cdn.tailwindcss.com"></script>
+</head>
 <body class="bg-[#030712] text-gray-100 flex items-center justify-center min-h-screen px-4">
     <div class="absolute inset-0 max-w-md mx-auto h-[400px] blur-[120px] bg-indigo-600/20 top-1/4 rounded-full pointer-events-none"></div>
     <div class="bg-gray-900/50 border border-gray-800/80 p-6 sm:p-8 rounded-2xl shadow-2xl w-full max-w-md backdrop-blur-md relative z-10">
@@ -500,7 +527,6 @@ def forgot_password():
 @app.route("/reset-password/<token>", methods=["GET", "POST"])
 def reset_password(token):
     try:
-        # Cryptographic security signature verification with rigid 1-hour link timing boundaries
         email = serializer.loads(token, salt="password-reset-salt", max_age=3600)
     except Exception:
         flash("The access credentials recovery security token is invalid or expired.")
@@ -521,7 +547,13 @@ def reset_password(token):
     return '''
 <!DOCTYPE html>
 <html lang="en">
-<head><meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1.0"><title>Set New Password</title><script src="https://cdn.tailwindcss.com"></script></head>
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Pulse | Overwrite Security Credentials</title>
+    <link rel="icon" type="image/svg+xml" href="/static/favicon.svg">
+    <script src="https://cdn.tailwindcss.com"></script>
+</head>
 <body class="bg-[#030712] text-gray-100 flex items-center justify-center min-h-screen px-4">
     <div class="absolute inset-0 max-w-md mx-auto h-[400px] blur-[120px] bg-indigo-600/20 top-1/4 rounded-full pointer-events-none"></div>
     <div class="bg-gray-900/50 border border-gray-800/80 p-6 sm:p-8 rounded-2xl shadow-2xl w-full max-w-md backdrop-blur-md relative z-10">
@@ -603,60 +635,72 @@ def dashboard():
     
     pro_badge = '<span class="bg-gradient-to-r from-amber-400 to-yellow-500 text-gray-950 px-3 py-1 rounded-full text-xs font-extrabold tracking-tight shadow-md shadow-yellow-500/10">⭐ PRO ACTIVE</span>' if current_user.is_pro else '<a href="/upgrade" class="bg-indigo-600 hover:bg-indigo-500 text-white px-3 py-1.5 rounded-full text-xs font-bold shadow-md shadow-indigo-600/20 transition active:scale-95">Upgrade to Pro</a>'
     
-    template = '''
+    template = f'''
 <!DOCTYPE html>
 <html lang="en">
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Analytics Console</title>
+    <title>Pulse Core | Operational Control Unit</title>
+    <link rel="icon" type="image/svg+xml" href="/static/favicon.svg">
     <script src="https://cdn.tailwindcss.com"></script>
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
     <style>
         @import url('https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700&display=swap');
-        body { font-family: 'Plus Jakarta Sans', sans-serif; background-color: #030712; }
+        body {{ font-family: 'Plus Jakarta Sans', sans-serif; background-color: #030712; }}
     </style>
 </head>
-<body class="text-gray-100 selection:bg-indigo-500/30 overflow-x-hidden">
-    <div class="absolute top-0 left-1/2 -translate-x-1/2 w-full max-w-7xl h-[400px] pointer-events-none opacity-20 blur-[120px] bg-indigo-600 rounded-full top-[-200px]"></div>
+<body class="text-gray-100 selection:bg-indigo-500/30 overflow-x-hidden min-h-screen flex flex-col justify-between">
+    <div>
+        <div class="absolute top-0 left-1/2 -translate-x-1/2 w-full max-w-7xl h-[400px] pointer-events-none opacity-20 blur-[120px] bg-indigo-600 rounded-full top-[-200px]"></div>
 
-    <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-6 sm:py-10 relative z-10">
-        <div class="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4 border-b border-gray-800/80 pb-6 mb-8">
-            <div class="min-w-0">
-                <span class="text-[10px] font-mono tracking-widest uppercase text-indigo-400">OPERATIONAL CONTROL UNIT</span>
-                <h1 class="text-xl sm:text-3xl font-extrabold text-white tracking-tight truncate mt-0.5">Instance: __USER_EMAIL__</h1>
-                <div class="mt-2">__PRO_BADGE__</div>
+        <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-6 sm:py-10 relative z-10">
+            <div class="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4 border-b border-gray-800/80 pb-6 mb-8">
+                <div class="min-w-0">
+                    <span class="text-[10px] font-mono tracking-widest uppercase text-indigo-400">OPERATIONAL CONTROL UNIT</span>
+                    <h1 class="text-xl sm:text-3xl font-extrabold text-white tracking-tight truncate mt-0.5">Instance: __USER_EMAIL__</h1>
+                    <div class="mt-2">__PRO_BADGE__</div>
+                </div>
+                <div class="flex items-center gap-2.5 w-full sm:w-auto shrink-0">
+                    <a href="mailto:lazarusgodswillahmadu@gmail.com?subject=Pulse%20Core%20Support%20Request&body=Describe%20your%20issue...%0A%0A---%0AUser%20Email%3A%20{current_user.email}" class="border border-gray-800 bg-gray-900/50 hover:bg-gray-800 text-gray-300 px-4 py-2.5 rounded-xl text-sm font-semibold transition flex items-center gap-1.5 shadow-sm">
+                        <i class="fas fa-headset text-indigo-400"></i> Contact Support
+                    </a>
+                    <a href="/add-website" class="flex-1 sm:flex-initial text-center bg-white hover:bg-gray-200 text-gray-950 px-4 py-2.5 rounded-xl text-sm font-semibold transition shadow-md shadow-white/5 active:scale-[0.98]">+ Inject Node</a>
+                    <button onclick="fetch('/update-all').then(() => refreshStatus())" class="flex-1 sm:flex-initial text-center bg-indigo-600 hover:bg-indigo-500 text-white px-4 py-2.5 rounded-xl text-sm font-semibold transition shadow-md shadow-indigo-600/20 active:scale-[0.98]"><i class="fas fa-rotate-right mr-1"></i> Force Check</button>
+                    <a href="/logout" class="bg-gray-900 border border-gray-800 hover:bg-gray-800 text-gray-400 px-4 py-2.5 rounded-xl text-sm font-semibold transition active:scale-[0.98]"><i class="fas fa-right-from-bracket"></i></a>
+                </div>
             </div>
-            <div class="flex items-center gap-2.5 w-full sm:w-auto shrink-0">
-                <a href="/add-website" class="flex-1 sm:flex-initial text-center bg-white hover:bg-gray-200 text-gray-950 px-4 py-2.5 rounded-xl text-sm font-semibold transition shadow-md shadow-white/5 active:scale-[0.98]">+ Inject Node</a>
-                <button onclick="fetch('/update-all').then(() => refreshStatus())" class="flex-1 sm:flex-initial text-center bg-indigo-600 hover:bg-indigo-500 text-white px-4 py-2.5 rounded-xl text-sm font-semibold transition shadow-md shadow-indigo-600/20 active:scale-[0.98]"><i class="fas fa-rotate-right mr-1"></i> Force Check</button>
-                <a href="/logout" class="bg-gray-900 border border-gray-800 hover:bg-gray-800 text-gray-400 px-4 py-2.5 rounded-xl text-sm font-semibold transition active:scale-[0.98]"><i class="fas fa-right-from-bracket"></i></a>
-            </div>
-        </div>
-        
-        <div id="flash-container">__FLASH_MESSAGES__</div>
+            
+            <div id="flash-container">__FLASH_MESSAGES__</div>
 
-        <div id="cards-container" class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-            __CARDS__
+            <div id="cards-container" class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+                __CARDS__
+            </div>
         </div>
     </div>
 
+    <footer class="border-t border-gray-800/60 bg-gray-950/20 py-6 mt-12 relative z-10">
+        <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 flex flex-col sm:flex-row justify-between items-center gap-4 text-center sm:text-left">
+            <span class="text-xs text-gray-500">© 2026 Pulse Infrastructure Dashboard Node. Real-time telemetry connection stable.</span>
+        </div>
+    </footer>
+
     <script>
-        async function refreshStatus() {
-            try {
+        async function refreshStatus() {{
+            try {{
                 const response = await fetch('/api/status');
                 const data = await response.json();
                 const websites = data.websites;
                 const container = document.getElementById('cards-container');
                 if (!container) return;
                 
-                if (websites.length === 0) {
+                if (websites.length === 0) {{
                     container.innerHTML = '<div class="col-span-full bg-gray-900/20 border border-dashed border-gray-800 rounded-2xl py-12 text-center text-sm text-gray-500 flex flex-col items-center justify-center gap-2"><i class="fas fa-folder-open text-xl opacity-40"></i> No infrastructure nodes configured to this cluster environment index.</div>';
                     return;
-                }
+                }}
                 
                 let newCards = '';
-                for (let w of websites) {
+                for (let w of websites) {{
                     const status = w.status;
                     const statusColor = status === 'UP' ? 'emerald' : 'red';
                     const statusBg = status === 'UP' ? 'emerald-500/10' : 'red-500/10';
@@ -668,20 +712,20 @@ def dashboard():
                         <div class="bg-gray-900/40 border border-gray-800/80 rounded-2xl p-5 backdrop-blur-sm shadow-xl flex flex-col justify-between group hover:border-gray-700 transition-all overflow-hidden max-w-full">
                             <div class="flex justify-between items-start gap-3 w-full">
                                 <div class="min-w-0 flex-1">
-                                    <h3 class="font-bold text-white text-base truncate">${w.name}</h3>
-                                    <p class="text-gray-400 text-xs truncate mt-0.5" title="${w.url}">${w.url}</p>
+                                    <h3 class="font-bold text-white text-base truncate">\${{w.name}}</h3>
+                                    <p class="text-gray-400 text-xs truncate mt-0.5" title="\${{w.url}}">\${{w.url}}</p>
                                 </div>
                                 <div class="flex flex-col items-end shrink-0">
-                                    <span class="inline-flex items-center gap-1.5 bg-${statusBg} border border-${statusBorder} px-2.5 py-1 rounded-full text-xs font-semibold text-${statusColor}-400">
-                                        <span class="w-1.5 h-1.5 rounded-full bg-${statusColor}-400 ${pulseAnimation}"></span>
-                                        ${status}
+                                    <span class="inline-flex items-center gap-1.5 bg-\${{statusBg}} border border-\${{statusBorder}} px-2.5 py-1 rounded-full text-xs font-semibold text-\${{statusColor}}-400">
+                                        <span class="w-1.5 h-1.5 rounded-full bg-\${{statusColor}}-400 \${{pulseAnimation}}"></span>
+                                        \${{status}}
                                     </span>
-                                    <span class="text-gray-500 text-[10px] tracking-wide uppercase mt-1">${responseTime}</span>
+                                    <span class="text-gray-500 text-[10px] tracking-wide uppercase mt-1">\${{responseTime}}</span>
                                 </div>
                             </div>
                             <div class="mt-6 pt-3 border-t border-gray-800/60 flex justify-between items-center w-full">
-                                <span class="text-[10px] font-mono text-gray-500 tracking-wider">NODE ID: #${w.id}</span>
-                                <a href="/delete-website/${w.id}" class="text-red-400 hover:text-red-300 text-xs font-medium inline-flex items-center gap-1 transition">
+                                <span class="text-[10px] font-mono text-gray-500 tracking-wider">NODE ID: #\${{w.id}}</span>
+                                <a href="/delete-website/\${{w.id}}" class="text-red-400 hover:text-red-300 text-xs font-medium inline-flex items-center gap-1 transition">
                                     <i class="fas fa-trash-can text-[10px]"></i> Terminate Node
                                 </a>
                             </div>
@@ -689,12 +733,11 @@ def dashboard():
                     `;
                 }
                 container.innerHTML = newCards;
-            } catch (err) {
+            }} catch (err) {{
                 console.error('Status refresh execution error:', err);
-            }
-        }
+            }}
+        }}
         
-        // Polling loop updates components safely without refreshing page
         setInterval(refreshStatus, 60000);
     </script>
 </body>
@@ -711,9 +754,8 @@ def dashboard():
 def add_website():
     if request.method == "POST":
         name = request.form["name"].strip()
-        url = request.form["url"].strip().rstrip('/') # Strip trailing slashes to accurately match duplicates
+        url = request.form["url"].strip().rstrip('/')
         
-        # Smart Duplication Prevention
         existing_site = Website.query.filter_by(user_id=current_user.id, url=url).first()
         if existing_site:
             flash(f"This URL ({url}) is already actively monitored!")
@@ -731,7 +773,13 @@ def add_website():
     return '''
 <!DOCTYPE html>
 <html lang="en">
-<head><meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1.0"><title>Inject Node</title><script src="https://cdn.tailwindcss.com"></script></head>
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Pulse | Mount Cluster Target</title>
+    <link rel="icon" type="image/svg+xml" href="/static/favicon.svg">
+    <script src="https://cdn.tailwindcss.com"></script>
+</head>
 <body class="bg-[#030712] text-gray-100 flex items-center justify-center min-h-screen px-4">
     <div class="absolute inset-0 max-w-md mx-auto h-[400px] blur-[120px] bg-indigo-600/20 top-1/4 rounded-full pointer-events-none"></div>
     <div class="bg-gray-900/50 border border-gray-800/80 p-6 sm:p-8 rounded-2xl shadow-2xl w-full max-w-md backdrop-blur-md relative z-10">
@@ -825,7 +873,6 @@ def payment_success():
 # ---------- PARALLEL BG ENGINE BLOCK (WITH LOCK PROTECTION) ----------
 @app.route("/update-all")
 def update_all():
-    # File-locking protects concurrent threads against overlapping triggers
     lock_file = open("/tmp/update_automation.lock", "w")
     try:
         fcntl.flock(lock_file, fcntl.LOCK_EX | fcntl.LOCK_NB)

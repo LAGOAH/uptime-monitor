@@ -2,6 +2,7 @@ from flask import Flask, redirect, url_for, request, flash, get_flashed_messages
 from flask_sqlalchemy import SQLAlchemy
 from flask_login import LoginManager, UserMixin, login_user, login_required, logout_user, current_user
 from werkzeug.security import generate_password_hash, check_password_hash
+from itsdangerous import URLSafeTimedSerializer
 import os
 import time
 import requests
@@ -20,8 +21,11 @@ logging.basicConfig(
 
 app = Flask(__name__)
 
-# Strengthened Production Secret Key Setup
+# Production Secret Key Setup
 app.config["SECRET_KEY"] = os.environ.get("SECRET_KEY", "dev-secret-key-change-this-only-in-local")
+
+# Cryptographic Token Serializer Definition for Password Resets
+serializer = URLSafeTimedSerializer(app.config["SECRET_KEY"])
 
 # Database Setup & Configuration
 database_url = os.environ.get("DATABASE_URL")
@@ -54,6 +58,11 @@ class User(UserMixin, db.Model):
     email = db.Column(db.String(120), unique=True, nullable=False)
     password_hash = db.Column(db.String(200), nullable=False)
     is_pro = db.Column(db.Boolean, default=False)
+    
+    # Password Reset Protocol Fields
+    reset_token = db.Column(db.String(100), nullable=True, unique=True)
+    reset_token_expiry = db.Column(db.DateTime, nullable=True)
+    
     websites = db.relationship("Website", backref="owner", lazy=True)
 
     def set_password(self, password):
@@ -140,6 +149,61 @@ def send_alert_email(user_email, website_name, status, url, response_time="N/A")
             else:
                 time.sleep(0.5)
     return False
+
+def send_welcome_email(user_email):
+    if not resend.api_key:
+        app.logger.warning("Resend API key missing – welcome email aborted")
+        return False
+    subject = "Welcome to Pulse Uptime Monitor! 🚀"
+    html = f"""
+    <div style="background-color:#0b0f19; color:#f3f4f6; padding:24px; font-family:sans-serif; border-radius:12px;">
+        <h2 style="color:#6366f1;">Welcome aboard! 🚀</h2>
+        <p>You have successfully initialized your operational control unit account on Pulse.</p>
+        <p>Start mounting infrastructure targets immediately to capture real-time availability logs and diagnostic telemetry alerts.</p>
+        <br>
+        <p style="color:#9ca3af; font-size:12px;">Automated system transmission. Pulse Core Infrastructure Engines.</p>
+    </div>
+    """
+    try:
+        resend.Emails.send({
+            "from": DEFAULT_FROM_EMAIL,
+            "to": [user_email],
+            "subject": subject,
+            "html": html,
+        })
+        app.logger.info(f"Welcome email successfully dispatched to {user_email}")
+        return True
+    except Exception as e:
+        app.logger.error(f"Welcome email sequence deployment failed: {e}")
+        return False
+
+def send_reset_email(user_email, reset_url):
+    if not resend.api_key:
+        app.logger.warning("Resend API key missing – reset link email aborted")
+        return False
+    subject = "Secure Password Reset Protocol Request"
+    html = f"""
+    <div style="background-color:#0b0f19; color:#f3f4f6; padding:24px; font-family:sans-serif; border-radius:12px;">
+        <h2 style="color:#6366f1;">Password Authorization Reset</h2>
+        <p>An access credential modification request was submitted. Use the token link below to define new access values. This security link expires in 1 hour.</p>
+        <div style="margin: 24px 0;">
+            <a href="{reset_url}" style="background-color:#4f46e5; color:#ffffff; padding:12px 24px; border-radius:8px; text-decoration:none; font-weight:bold;">Reset Access Credentials</a>
+        </div>
+        <p style="color:#9ca3af; font-size:11px;">If you did not request this administrative modification, ignore this automated transmission immediately.</p>
+    </div>
+    """
+    try:
+        resend.Emails.send({
+            "from": DEFAULT_FROM_EMAIL,
+            "to": [user_email],
+            "subject": subject,
+            "html": html,
+        })
+        app.logger.info(f"Password recovery transmission delivered to {user_email}")
+        return True
+    except Exception as e:
+        app.logger.error(f"Recovery token delivery failed: {e}")
+        return False
 
 def process_single_website(website):
     with app.app_context():
@@ -314,7 +378,8 @@ def index():
 @app.route("/signup", methods=["GET", "POST"])
 def signup():
     if request.method == "POST":
-        email = request.form["email"]
+        # Structured input sanitization
+        email = request.form["email"].strip().lower()
         password = request.form["password"]
         if User.query.filter_by(email=email).first():
             flash("Email already registered")
@@ -323,6 +388,10 @@ def signup():
         user.set_password(password)
         db.session.add(user)
         db.session.commit()
+        
+        # Professional Onboarding Automation Email Response Trigger
+        send_welcome_email(email)
+        
         login_user(user)
         return redirect(url_for("dashboard"))
     return '''
@@ -350,14 +419,20 @@ def signup():
 @app.route("/login", methods=["GET", "POST"])
 def login():
     if request.method == "POST":
-        email = request.form["email"]
+        # Structured input sanitization
+        email = request.form["email"].strip().lower()
         password = request.form["password"]
         user = User.query.filter_by(email=email).first()
         if user and user.check_password(password):
             login_user(user)
             return redirect(url_for("dashboard"))
         flash("Invalid email or password")
-    return '''
+        
+    flash_messages = ""
+    for msg in get_flashed_messages():
+        flash_messages += f'<div class="bg-red-950/50 border border-red-500/30 text-red-300 text-xs px-4 py-3 rounded-xl mb-4 text-center">⚠️ {msg}</div>'
+
+    return f'''
 <!DOCTYPE html>
 <html lang="en">
 <head><meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1.0"><title>Login</title><script src="https://cdn.tailwindcss.com"></script></head>
@@ -368,12 +443,96 @@ def login():
             <h2 class="text-2xl font-bold text-white tracking-tight">Access Control Interface</h2>
             <p class="text-xs text-gray-400 mt-1">Authenticate access protocols.</p>
         </div>
+        
+        {flash_messages}
+
         <form method="post" class="space-y-4">
             <div><label class="text-xs text-gray-400 font-medium block mb-1.5">Email Address</label><input name="email" type="email" class="w-full bg-gray-950/80 border border-gray-800 rounded-xl p-3 text-sm focus:border-indigo-500 focus:outline-none transition text-white" placeholder="you@domain.com" required></div>
             <div><label class="text-xs text-gray-400 font-medium block mb-1.5">Password</label><input name="password" type="password" class="w-full bg-gray-950/80 border border-gray-800 rounded-xl p-3 text-sm focus:border-indigo-500 focus:outline-none transition text-white" placeholder="••••••••" required></div>
             <button type="submit" class="w-full bg-indigo-600 hover:bg-indigo-500 text-white py-3 rounded-xl text-sm font-semibold shadow-lg shadow-indigo-600/20 transition active:scale-[0.99]">Establish Authentication</button>
         </form>
-        <p class="text-xs text-center text-gray-500 mt-4">Missing authorization? <a href="/signup" class="text-indigo-400 hover:underline">Register cluster node</a></p>
+        <div class="flex flex-col gap-2 text-center mt-4 text-xs text-gray-500">
+            <p>Forgotten access token? <a href="/forgot-password" class="text-indigo-400 hover:underline">Reset access keys</a></p>
+            <p>Missing authorization? <a href="/signup" class="text-indigo-400 hover:underline">Register cluster node</a></p>
+        </div>
+    </div>
+</body>
+</html>
+    '''
+
+@app.route("/forgot-password", methods=["GET", "POST"])
+def forgot_password():
+    if request.method == "POST":
+        # Structured input sanitization
+        email = request.form["email"].strip().lower()
+        user = User.query.filter_by(email=email).first()
+        if user:
+            # Generate temporary secure token signature tied to email salt (expires in 3600s)
+            token = serializer.dumps(email, salt="password-reset-salt")
+            reset_url = url_for("reset_password", token=token, _external=True)
+            send_reset_email(email, reset_url)
+        
+        # Unified flashing responses protect account validation snoop queries
+        flash("If that configuration coordinate exists inside our registry index, a recovery transmission has been dispatched.")
+        return redirect(url_for("login"))
+        
+    return '''
+<!DOCTYPE html>
+<html lang="en">
+<head><meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1.0"><title>Forgot Password</title><script src="https://cdn.tailwindcss.com"></script></head>
+<body class="bg-[#030712] text-gray-100 flex items-center justify-center min-h-screen px-4">
+    <div class="absolute inset-0 max-w-md mx-auto h-[400px] blur-[120px] bg-indigo-600/20 top-1/4 rounded-full pointer-events-none"></div>
+    <div class="bg-gray-900/50 border border-gray-800/80 p-6 sm:p-8 rounded-2xl shadow-2xl w-full max-w-md backdrop-blur-md relative z-10">
+        <div class="text-center mb-6">
+            <h2 class="text-xl font-bold text-white tracking-tight">Initialize Recovery Flow</h2>
+            <p class="text-xs text-gray-400 mt-1">Submit registered connection address token.</p>
+        </div>
+        <form method="post" class="space-y-4">
+            <div><label class="text-xs text-gray-400 font-medium block mb-1.5">Account Email Address</label><input name="email" type="email" class="w-full bg-gray-950/80 border border-gray-800 rounded-xl p-3 text-sm focus:border-indigo-500 focus:outline-none transition text-white" placeholder="you@domain.com" required></div>
+            <button type="submit" class="w-full bg-indigo-600 hover:bg-indigo-500 text-white py-3 rounded-xl text-sm font-semibold shadow-lg shadow-indigo-600/20 transition active:scale-[0.99]">Dispatch Recovery Link</button>
+        </form>
+        <p class="text-xs text-center text-gray-500 mt-4"><a href="/login" class="text-indigo-400 hover:underline">Return to interface portal</a></p>
+    </div>
+</body>
+</html>
+    '''
+
+@app.route("/reset-password/<token>", methods=["GET", "POST"])
+def reset_password(token):
+    try:
+        # Cryptographic security signature verification with rigid 1-hour link timing boundaries
+        email = serializer.loads(token, salt="password-reset-salt", max_age=3600)
+    except Exception:
+        flash("The access credentials recovery security token is invalid or expired.")
+        return redirect(url_for("forgot_password"))
+        
+    user = User.query.filter_by(email=email).first()
+    if not user:
+        flash("Administrative match record missing.")
+        return redirect(url_for("forgot_password"))
+        
+    if request.method == "POST":
+        password = request.form["password"]
+        user.set_password(password)
+        db.session.commit()
+        flash("Account security layers updated. Enter new credentials to access dashboard.")
+        return redirect(url_for("login"))
+        
+    return '''
+<!DOCTYPE html>
+<html lang="en">
+<head><meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1.0"><title>Set New Password</title><script src="https://cdn.tailwindcss.com"></script></head>
+<body class="bg-[#030712] text-gray-100 flex items-center justify-center min-h-screen px-4">
+    <div class="absolute inset-0 max-w-md mx-auto h-[400px] blur-[120px] bg-indigo-600/20 top-1/4 rounded-full pointer-events-none"></div>
+    <div class="bg-gray-900/50 border border-gray-800/80 p-6 sm:p-8 rounded-2xl shadow-2xl w-full max-w-md backdrop-blur-md relative z-10">
+        <div class="text-center mb-6">
+            <h2 class="text-xl font-bold text-white tracking-tight">Overwrite Access Values</h2>
+            <p class="text-xs text-gray-400 mt-1">Establish highly secure fresh password block.</p>
+        </div>
+        <form method="post" class="space-y-4">
+            <div><label class="text-xs text-gray-400 font-medium block mb-1.5">New Security Password</label><input name="password" type="password" class="w-full bg-gray-950/80 border border-gray-800 rounded-xl p-3 text-sm focus:border-indigo-500 focus:outline-none transition text-white" placeholder="••••••••" required></div>
+            <button type="submit" class="w-full bg-indigo-600 hover:bg-indigo-500 text-white py-3 rounded-xl text-sm font-semibold shadow-lg shadow-indigo-600/20 transition active:scale-[0.99]">Update Credentials Profile</button>
+        </form>
     </div>
 </body>
 </html>
@@ -535,7 +694,7 @@ def dashboard():
             }
         }
         
-        // Polling loop updates components every 60 seconds (60000ms) safely without refreshing page
+        // Polling loop updates components safely without refreshing page
         setInterval(refreshStatus, 60000);
     </script>
 </body>
@@ -666,7 +825,7 @@ def payment_success():
 # ---------- PARALLEL BG ENGINE BLOCK (WITH LOCK PROTECTION) ----------
 @app.route("/update-all")
 def update_all():
-    # File-locking protects concurrent threads against overlapping cron triggers
+    # File-locking protects concurrent threads against overlapping triggers
     lock_file = open("/tmp/update_automation.lock", "w")
     try:
         fcntl.flock(lock_file, fcntl.LOCK_EX | fcntl.LOCK_NB)
@@ -676,25 +835,4 @@ def update_all():
         return "Already running", 429
 
     try:
-        websites = Website.query.all()
-        with ThreadPoolExecutor(max_workers=10) as executor:
-            executor.map(process_single_website, websites)
-            
-        return "OK", 200
-    except Exception as e:
-        app.logger.error(f"Background automation framework error: {e}")
-        return "ERR", 500
-    finally:
-        fcntl.flock(lock_file, fcntl.LOCK_UN)
-        lock_file.close()
-
-with app.app_context():
-    db.create_all()
-
-@app.route("/ping")
-def ping():
-    return "OK", 200
-
-if __name__ == "__main__":
-    debug_mode = os.environ.get("FLASK_DEBUG", "False").lower() == "true"
-    app.run(host="0.0.0.0", port=5000, debug=debug_mode)
+        websites = Website.query

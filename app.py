@@ -649,23 +649,29 @@ def payment_success():
 # ---------- BACKGROUND CHECKS ----------
 @app.route("/update-all")
 def update_all():
-    lock_file = open("/tmp/update_automation.lock", "w")
-    try:
-        fcntl.flock(lock_file, fcntl.LOCK_EX | fcntl.LOCK_NB)
-    except BlockingIOError:
-        lock_file.close()
-        return "Already running", 429
-    try:
-        website_ids = [w.id for w in Website.query.all()]
-        with ThreadPoolExecutor(max_workers=10) as executor:
-            executor.map(process_single_website, website_ids)
-        return "OK", 200
+    try:   # <-- outer catch‑all
+        lock_file = open("/tmp/update_automation.lock", "w")
+        try:
+            fcntl.flock(lock_file, fcntl.LOCK_EX | fcntl.LOCK_NB)
+        except BlockingIOError:
+            lock_file.close()
+            return "Already running", 429
+
+        try:
+            website_ids = [w.id for w in Website.query.all()]
+            with ThreadPoolExecutor(max_workers=10) as executor:
+                executor.map(process_single_website, website_ids)
+            return "OK", 200
+        except Exception as e:
+            app.logger.error(f"Update-all error: {e}")
+            return "ERR", 500
+        finally:
+            fcntl.flock(lock_file, fcntl.LOCK_UN)
+            lock_file.close()
     except Exception as e:
-        app.logger.error(f"Update-all error: {e}")
+        # Any unexpected error (e.g., file open failure) goes here
+        app.logger.error(f"Catastrophic error in /update-all: {e}")
         return "ERR", 500
-    finally:
-        fcntl.flock(lock_file, fcntl.LOCK_UN)
-        lock_file.close()
 
 @app.route("/ping")
 def ping():

@@ -659,7 +659,7 @@ def update_all():
 
         try:
             website_ids = [w.id for w in Website.query.all()]
-            with ThreadPoolExecutor(max_workers=2) as executor:
+            with ThreadPoolExecutor(max_workers=1) as executor:
                 executor.map(process_single_website, website_ids)
             return "OK", 200
         except Exception as e:
